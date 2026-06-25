@@ -15,7 +15,12 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfElectricPotential
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import (
+    CONNECTION_BLUETOOTH,
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -218,8 +223,18 @@ class WhiskerSensor(CoordinatorEntity[WhiskerDataUpdateCoordinator], SensorEntit
         """Return device information."""
         device_state = self.coordinator.data.get(self._device_id)
         if device_state:
+            connections = set()
+            if device_state.wifi_mac_address:
+                connections.add(
+                    (CONNECTION_NETWORK_MAC, format_mac(device_state.wifi_mac_address))
+                )
+            if device_state.bluetooth_mac_address:
+                connections.add(
+                    (CONNECTION_BLUETOOTH, format_mac(device_state.bluetooth_mac_address))
+                )
             return DeviceInfo(
                 identifiers={(DOMAIN, self._device_id)},
+                connections=connections,
                 name=device_state.name,
                 manufacturer="Whisker Labs",
                 model="Ting Fire Sensor",

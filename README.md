@@ -17,7 +17,7 @@ Home Assistant integration for [Whisker Labs Ting](https://www.tingfire.com/) el
   - Learning mode status
 - **Device diagnostics**
   - Firmware version
-  - WiFi/Bluetooth MAC addresses
+  - WiFi/Bluetooth MAC addresses (also registered as device connections)
   - Serial number
 
 ## Installation
