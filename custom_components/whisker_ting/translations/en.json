@@ -55,6 +55,12 @@
       "frozen_pipe": {
         "name": "Frozen Pipe Risk"
       },
+      "power_quality_hazard": {
+        "name": "Power Quality Hazard"
+      },
+      "connectivity": {
+        "name": "Connectivity"
+      },
       "learning_mode": {
         "name": "Learning Mode"
       },
@@ -107,6 +113,9 @@
       },
       "serial_number": {
         "name": "Serial Number"
+      },
+      "subscription_start": {
+        "name": "Subscription Start"
       },
       "group_name": {
         "name": "Group"

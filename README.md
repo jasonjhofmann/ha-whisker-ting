@@ -15,10 +15,13 @@ Home Assistant integration for [Whisker Labs Ting](https://www.tingfire.com/) el
   - Electrical Fire Hazard (EFH) detection
   - Utility Fire Hazard (UFH) detection
   - Learning mode status
+- **Power quality hazard** detection (site-level)
+- **Connectivity** — reflects whether the real-time data stream is live
 - **Device diagnostics**
   - Firmware version
   - WiFi/Bluetooth MAC addresses (also registered as device connections)
   - Serial number
+  - Subscription start date
 
 ## Installation
 

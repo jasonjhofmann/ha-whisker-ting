@@ -34,6 +34,9 @@ class WhiskerBinarySensorEntityDescription(BinarySensorEntityDescription):
     """Describes a Whisker Ting binary sensor entity."""
 
     value_fn: Callable[[DeviceState], bool]
+    # True for the connectivity sensor, whose state derives from the live
+    # WebSocket stream rather than from a DeviceState field.
+    connectivity: bool = False
 
 
 BINARY_SENSOR_DESCRIPTIONS: tuple[WhiskerBinarySensorEntityDescription, ...] = (
@@ -67,6 +70,21 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[WhiskerBinarySensorEntityDescription, ...] = (
         translation_key="frozen_pipe",
         device_class=BinarySensorDeviceClass.COLD,
         value_fn=lambda state: state.has_frozen_pipe,
+    ),
+    WhiskerBinarySensorEntityDescription(
+        key="power_quality_hazard",
+        translation_key="power_quality_hazard",
+        device_class=BinarySensorDeviceClass.SAFETY,
+        value_fn=lambda state: state.is_power_quality_hazard,
+    ),
+    WhiskerBinarySensorEntityDescription(
+        key="connectivity",
+        translation_key="connectivity",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        connectivity=True,
+        # Derived from stream liveness in is_on; this field is unused for it.
+        value_fn=lambda state: False,
     ),
     WhiskerBinarySensorEntityDescription(
         key="learning_mode",
@@ -170,6 +188,10 @@ class WhiskerBinarySensor(
     @property
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
+        # Connectivity reflects whether the real-time stream is live, not a
+        # DeviceState field.
+        if self.entity_description.connectivity:
+            return self.coordinator.voltage_is_live(self._device_id)
         device_state = self.coordinator.data.get(self._device_id)
         if device_state is None:
             return None

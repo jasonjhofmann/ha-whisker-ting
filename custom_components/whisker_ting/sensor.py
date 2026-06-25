@@ -23,6 +23,7 @@ from homeassistant.helpers.device_registry import (
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .api import DeviceState
 from .const import DOMAIN
@@ -158,6 +159,18 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda state: state.serial_number,
+    ),
+    WhiskerSensorEntityDescription(
+        key="subscription_start",
+        translation_key="subscription_start",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda state: (
+            dt_util.parse_datetime(state.subscription_start_date)
+            if state.subscription_start_date
+            else None
+        ),
     ),
     WhiskerSensorEntityDescription(
         key="group_name",

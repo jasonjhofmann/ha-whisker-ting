@@ -65,12 +65,15 @@ class DeviceState:
     bluetooth_mac_address: str | None = None
     soc_serial_number: str | None = None
     station_id: str | None = None  # For WebSocket connection
+    subscription_start_date: str | None = None
 
     # Status flags
     is_fire: bool = False
     is_hvac_verified: bool = False
     has_frozen_pipe: bool = False
     is_owner: bool = False
+    # Site-level flag, joined from the device's site by siteId.
+    is_power_quality_hazard: bool = False
 
     # Hazard status
     fire_hazard_status: FireHazardStatus = field(default_factory=FireHazardStatus)
@@ -100,6 +103,7 @@ class Site:
     country: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    is_power_quality_hazard: bool = False
 
 
 @dataclass
@@ -283,12 +287,9 @@ class WhiskerApiClient:
 
     def _parse_user_data(self, data: dict[str, Any]) -> UserData:
         """Parse user data from API response."""
-        devices = []
-        for device_data in data.get("devices", []):
-            device = self._parse_device(device_data)
-            devices.append(device)
-
+        # Parse sites first so device parsing can join site-level fields.
         sites = []
+        site_map: dict[int, Site] = {}
         for site_data in data.get("sites", []):
             site = Site(
                 id=site_data.get("id", 0),
@@ -301,8 +302,15 @@ class WhiskerApiClient:
                 country=site_data.get("country"),
                 latitude=site_data.get("latitude"),
                 longitude=site_data.get("longitude"),
+                is_power_quality_hazard=site_data.get("isPowerQualityHazard", False),
             )
             sites.append(site)
+            site_map[site.id] = site
+
+        devices = []
+        for device_data in data.get("devices", []):
+            device = self._parse_device(device_data, site_map)
+            devices.append(device)
 
         return UserData(
             user_id=data.get("id", 0),
@@ -314,7 +322,9 @@ class WhiskerApiClient:
             sites=sites,
         )
 
-    def _parse_device(self, data: dict[str, Any]) -> DeviceState:
+    def _parse_device(
+        self, data: dict[str, Any], site_map: dict[int, Site] | None = None
+    ) -> DeviceState:
         """Parse device state from API response."""
         # Parse fire hazard status
         fhs_data = data.get("fireHazardStatus", {})
@@ -354,20 +364,26 @@ class WhiskerApiClient:
         # Get station_id for WebSocket - it's the serial number
         station_id = data.get("serialNumber", "")
 
+        # Join site-level fields from the device's site.
+        site_id = data.get("siteId", 0)
+        site = (site_map or {}).get(site_id)
+
         return DeviceState(
             serial_number=data.get("serialNumber", ""),
             name=data.get("name", data.get("serialNumber", "")),
             device_type=data.get("type", "Unknown"),
-            site_id=data.get("siteId", 0),
+            site_id=site_id,
             version=data.get("version"),
             wifi_mac_address=data.get("wifiMacAddress"),
             bluetooth_mac_address=data.get("bluetoothMacAddress"),
             soc_serial_number=data.get("socSerialNumber"),
             station_id=station_id,
+            subscription_start_date=data.get("subscriptionStartDate"),
             is_fire=data.get("isFire", False),
             is_hvac_verified=data.get("isHvacVerified", False),
             has_frozen_pipe=data.get("hasFrozenPipe", False),
             is_owner=data.get("isOwner", False),
+            is_power_quality_hazard=bool(site.is_power_quality_hazard) if site else False,
             fire_hazard_status=fire_hazard_status,
             group_name=group_data.get("name"),
             group_id=group_data.get("id"),
