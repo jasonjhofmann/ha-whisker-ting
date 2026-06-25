@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import aiohttp
 
@@ -17,6 +17,11 @@ from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .websocket import VoltageData, WhiskerWebSocketManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# Max rate at which real-time WebSocket voltage updates are pushed to HA state.
+# The stream arrives ~4 Hz; pushing every frame fans a full coordinator update
+# to every entity and floods the recorder, so throttle the state writes.
+WS_PUSH_THROTTLE = timedelta(seconds=1)
 
 
 class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
@@ -41,6 +46,13 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         self._last_update_success: bool | None = None
         self._ws_manager: WhiskerWebSocketManager | None = None
         self._ws_connected = False
+        self._last_ws_push: datetime | None = None
+
+    def voltage_is_live(self, device_id: str) -> bool:
+        """Return True if a fresh real-time voltage stream exists for a device."""
+        if not self._ws_manager:
+            return False
+        return self._ws_manager.is_data_fresh(device_id)
 
     @callback
     def _handle_voltage_update(self, station_id: str, voltage_data: VoltageData) -> None:
@@ -51,15 +63,22 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         # Find the device with this station_id
         for device_id, device_state in self.data.items():
             if device_state.station_id == station_id:
-                # Update the voltage reading
+                # Update the in-memory reading immediately...
                 device_state.voltage = VoltageReading(
                     voltage=voltage_data.voltage,
                     voltage_hi=voltage_data.voltage_hi,
                     voltage_lo=voltage_data.voltage_lo,
                     average_peaks_max=voltage_data.average_peaks_max,
                 )
-                # Trigger an update for listeners
-                self.async_set_updated_data(self.data)
+                # ...but throttle how often we write HA state. The stream is
+                # ~4 Hz; pushing every frame churns every entity and the recorder.
+                now = datetime.now()
+                if (
+                    self._last_ws_push is None
+                    or now - self._last_ws_push >= WS_PUSH_THROTTLE
+                ):
+                    self._last_ws_push = now
+                    self.async_set_updated_data(self.data)
                 break
 
     async def _connect_websocket(self, data: dict[str, DeviceState]) -> None:

@@ -97,65 +97,131 @@ class WhiskerWebSocket:
         # Ping is just {1: [6]}
         return msgpack.packb({1: [MSG_TYPE_PING]}, use_bin_type=True)
 
+    @staticmethod
+    def _iter_signalr_messages(data: bytes):
+        """Yield individual MessagePack message bodies from a SignalR frame.
+
+        SignalR MessagePack messages are prefixed with a LEB128 varint length,
+        and a single WebSocket frame may carry several concatenated messages.
+        """
+        pos = 0
+        n = len(data)
+        while pos < n:
+            length = 0
+            shift = 0
+            consumed_varint = False
+            while pos < n:
+                byte = data[pos]
+                pos += 1
+                length |= (byte & 0x7F) << shift
+                if not byte & 0x80:
+                    consumed_varint = True
+                    break
+                shift += 7
+            if not consumed_varint or length <= 0 or pos + length > n:
+                return  # Not valid framing; caller falls back to a raw scan.
+            yield data[pos : pos + length]
+            pos += length
+
+    def _scan_doubles(self, data: bytes) -> list[float]:
+        """Extract float64 values (msgpack 0xCB markers) from raw bytes.
+
+        Legacy fallback used only when the structured decode can't parse the
+        frame, so a server-side framing change can't silently kill readings.
+        """
+        doubles: list[float] = []
+        pos = 0
+        while pos <= len(data) - 9:
+            if data[pos] == 0xCB:  # float64 marker
+                doubles.append(struct.unpack(">d", data[pos + 1 : pos + 9])[0])
+                pos += 9
+            else:
+                pos += 1
+        return doubles
+
+    def _collect_doubles(self, obj: Any) -> list[float]:
+        """Recursively collect float values from a decoded msgpack structure."""
+        out: list[float] = []
+        if isinstance(obj, float):
+            out.append(obj)
+        elif isinstance(obj, (bytes, bytearray)):
+            out.extend(self._scan_doubles(bytes(obj)))
+        elif isinstance(obj, (list, tuple)):
+            for item in obj:
+                out.extend(self._collect_doubles(item))
+        elif isinstance(obj, dict):
+            for item in obj.values():
+                out.extend(self._collect_doubles(item))
+        return out
+
+    def _doubles_from_message(self, obj: Any) -> list[float]:
+        """Pull voltage doubles out of one decoded SignalR message."""
+        # This client wraps invocations as {1: [...]}; unwrap a single-key map.
+        if isinstance(obj, dict) and len(obj) == 1:
+            obj = next(iter(obj.values()))
+        # Prefer the arguments of an updateComboBinaryData invocation.
+        if (
+            isinstance(obj, (list, tuple))
+            and len(obj) >= 5
+            and obj[0] == MSG_TYPE_INVOCATION
+        ):
+            if obj[3] != "updateComboBinaryData":
+                return []
+            return self._collect_doubles(obj[4])
+        return self._collect_doubles(obj)
+
     def _decode_voltage_data(self, data: bytes) -> VoltageData | None:
-        """Decode voltage data from MessagePack message."""
+        """Decode voltage data from a SignalR MessagePack frame.
+
+        Unpacks the MessagePack envelope and reads the voltage doubles from the
+        decoded structure (robust to header/method/timestamp bytes that the old
+        raw scan could mistake for float64 markers). Falls back to a raw byte
+        scan if the frame can't be unpacked.
+        """
+        doubles: list[float] = []
+        candidates = []
+
+        # The frame may be a single bare object (this client's framing) or one
+        # or more length-prefixed SignalR messages; try both.
         try:
-            # Find double values in the message (0xcb prefix)
-            doubles = []
-            pos = 0
-            while pos < len(data):
-                if data[pos] == 0xCB:  # float64 marker
-                    val = struct.unpack(">d", data[pos + 1 : pos + 9])[0]
-                    doubles.append(val)
-                    pos += 9
-                else:
-                    pos += 1
-
-            if len(doubles) >= 4:
-                voltage = doubles[0]
-                peaks = doubles[1]
-                voltage_hi = doubles[2]
-                voltage_lo = doubles[3]
-
-                # Filter out obviously bad readings
-                # Only discard zero/near-zero or clearly garbage values
-                if abs(voltage) < 1 or abs(voltage) > 1000:
-                    _LOGGER.debug(
-                        "Discarding anomalous voltage reading: %.2fV", voltage
-                    )
-                    return None
-
-                # Find timestamp (uint64 with 0xd7 or 0xcf prefix)
-                timestamp = datetime.now()  # Default to now
-                pos = 0
-                while pos < len(data) - 8:
-                    if data[pos] == 0xD7:  # ext8 with type -1 (timestamp)
-                        pos += 1
-                        if data[pos] == 0xFF:  # timestamp type
-                            pos += 1
-                            ts_val = struct.unpack(">Q", data[pos : pos + 8])[0]
-                            # SignalR uses .NET ticks (100ns since 1/1/0001)
-                            # Convert to Unix timestamp
-                            try:
-                                timestamp = datetime.fromtimestamp(ts_val / 10000000 - 62135596800)
-                            except (ValueError, OSError):
-                                pass
-                            break
-                        pos += 7
-                    else:
-                        pos += 1
-
-                return VoltageData(
-                    timestamp=timestamp,
-                    voltage=voltage,
-                    average_peaks_max=peaks,
-                    voltage_hi=voltage_hi,
-                    voltage_lo=voltage_lo,
+            candidates.append(msgpack.unpackb(data, raw=False, strict_map_key=False))
+        except Exception:  # noqa: BLE001 - probing; failures are expected
+            pass
+        try:
+            for body in self._iter_signalr_messages(data):
+                candidates.append(
+                    msgpack.unpackb(body, raw=False, strict_map_key=False)
                 )
-        except Exception as err:
-            _LOGGER.debug("Error decoding voltage data: %s", err)
+        except Exception:  # noqa: BLE001 - probing; failures are expected
+            pass
 
-        return None
+        for obj in candidates:
+            doubles = self._doubles_from_message(obj)
+            if len(doubles) >= 4:
+                break
+
+        if len(doubles) < 4:
+            # Last resort: scan the raw frame (legacy behavior).
+            doubles = self._scan_doubles(data)
+
+        if len(doubles) < 4:
+            _LOGGER.debug("Could not extract voltage doubles from frame")
+            return None
+
+        voltage, peaks, voltage_hi, voltage_lo = doubles[:4]
+
+        # Filter out obviously bad readings (zero/near-zero or clearly garbage).
+        if abs(voltage) < 1 or abs(voltage) > 1000:
+            _LOGGER.debug("Discarding anomalous voltage reading: %.2fV", voltage)
+            return None
+
+        return VoltageData(
+            timestamp=datetime.now(),
+            voltage=voltage,
+            average_peaks_max=peaks,
+            voltage_hi=voltage_hi,
+            voltage_lo=voltage_lo,
+        )
 
     async def connect(self) -> bool:
         """Connect to the SignalR hub."""
@@ -350,6 +416,7 @@ class WhiskerWebSocketManager:
         self._on_voltage_update = on_voltage_update
         self._connections: dict[str, WhiskerWebSocket] = {}
         self._voltage_data: dict[str, VoltageData] = {}
+        self._last_update_time: dict[str, datetime] = {}  # For staleness checks
         self._credentials: dict[str, dict] = {}  # Store credentials for reconnect
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
         self._reconnect_attempts: dict[str, int] = {}
@@ -359,9 +426,19 @@ class WhiskerWebSocketManager:
         """Get the latest voltage data for a station."""
         return self._voltage_data.get(station_id)
 
+    def is_data_fresh(
+        self, station_id: str, max_age: float = WhiskerWebSocket.STALE_DATA_THRESHOLD
+    ) -> bool:
+        """Return True if recent voltage data has been received for a station."""
+        last = self._last_update_time.get(station_id)
+        if last is None:
+            return False
+        return (datetime.now() - last).total_seconds() <= max_age
+
     def _handle_voltage_update(self, station_id: str, data: VoltageData) -> None:
         """Handle voltage update from WebSocket."""
         self._voltage_data[station_id] = data
+        self._last_update_time[station_id] = datetime.now()
         # Reset reconnect attempts on successful data
         self._reconnect_attempts[station_id] = 0
         _LOGGER.debug(

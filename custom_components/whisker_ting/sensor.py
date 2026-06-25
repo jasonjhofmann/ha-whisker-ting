@@ -36,6 +36,10 @@ class WhiskerSensorEntityDescription(SensorEntityDescription):
     """Describes a Whisker Ting sensor entity."""
 
     value_fn: Callable[[DeviceState], Any]
+    # True for sensors fed by the real-time WebSocket stream; these go
+    # unavailable when the stream is disconnected/stale rather than showing a
+    # frozen last value forever.
+    realtime: bool = False
 
 
 SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
@@ -47,6 +51,7 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
+        realtime=True,
         value_fn=lambda state: state.voltage.voltage if state.voltage.voltage > 0 else None,
     ),
     WhiskerSensorEntityDescription(
@@ -56,6 +61,7 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
+        realtime=True,
         value_fn=lambda state: state.voltage.voltage_hi if state.voltage.voltage_hi > 0 else None,
     ),
     WhiskerSensorEntityDescription(
@@ -65,6 +71,7 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
+        realtime=True,
         value_fn=lambda state: state.voltage.voltage_lo if state.voltage.voltage_lo > 0 else None,
     ),
     WhiskerSensorEntityDescription(
@@ -75,6 +82,7 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
+        realtime=True,
         value_fn=lambda state: state.voltage.average_peaks_max if state.voltage.average_peaks_max > 0 else None,
     ),
     # Primary status sensors (enabled by default)
@@ -249,7 +257,13 @@ class WhiskerSensor(CoordinatorEntity[WhiskerDataUpdateCoordinator], SensorEntit
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return super().available and self._device_id in self.coordinator.data
+        if not (super().available and self._device_id in self.coordinator.data):
+            return False
+        # Real-time voltage sensors depend on a live WebSocket stream; report
+        # unavailable when it is disconnected/stale instead of a frozen value.
+        if self.entity_description.realtime:
+            return self.coordinator.voltage_is_live(self._device_id)
+        return True
 
     @property
     def native_value(self) -> Any:

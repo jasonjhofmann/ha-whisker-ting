@@ -74,6 +74,13 @@ Home Assistant integration for [Whisker Labs Ting](https://www.tingfire.com/) el
 
 This is normal - the integration waits for the WebSocket connection to receive its first data packet before displaying values.
 
+### Voltage sensors show "Unavailable"
+
+The real-time voltage sensors depend on a live WebSocket stream. If the stream
+disconnects and cannot be re-established, these sensors report unavailable
+(rather than a frozen last value) until the stream recovers. The hazard and
+diagnostic sensors continue to update from the regular API poll.
+
 ### Authentication errors
 
 Ensure you're using the same email and password you use in the Whisker Labs mobile app.

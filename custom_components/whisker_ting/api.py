@@ -192,8 +192,9 @@ class WhiskerApiClient:
             self._refresh_token = result["refresh_token"]
             self._id_token = result["id_token"]
 
-            # Token expires in 1 hour typically
-            self._token_expiry = datetime.now() + timedelta(hours=1)
+            # Use the lifetime Cognito reports rather than assuming one hour.
+            expires_in = int(result.get("expires_in", 3600))
+            self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
 
             # Extract user info from attributes
             user_attrs = {
@@ -216,7 +217,8 @@ class WhiskerApiClient:
 
             self._access_token = result["AccessToken"]
             self._id_token = result.get("IdToken", self._id_token)
-            self._token_expiry = datetime.now() + timedelta(hours=1)
+            expires_in = int(result.get("ExpiresIn", 3600))
+            self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
 
             _LOGGER.debug("Access token refreshed")
 

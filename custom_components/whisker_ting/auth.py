@@ -257,6 +257,7 @@ class WhiskerAuth:
             "access_token": tokens["AccessToken"],
             "id_token": tokens["IdToken"],
             "refresh_token": tokens["RefreshToken"],
+            "expires_in": tokens.get("ExpiresIn", 3600),
             "user_attributes": user_info.get("UserAttributes", []),
         }
 
