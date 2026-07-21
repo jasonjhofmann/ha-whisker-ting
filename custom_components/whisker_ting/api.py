@@ -420,12 +420,3 @@ class WhiskerApiClient:
         """Get the state of all devices."""
         user_data = await self.get_user_data()
         return {device.serial_number: device for device in user_data.devices}
-
-    async def test_connection(self) -> bool:
-        """Test the connection to the API."""
-        try:
-            await self.get_user_data()
-        except WhiskerApiError:
-            return False
-        else:
-            return True

@@ -2,7 +2,7 @@
 pytest-homeassistant-custom-component==0.13.316
 syrupy==5.0.0
 
-# Runtime requirement from custom_components/whisker_ting/manifest.json (msgpack>=1.0.0).
+# Runtime requirement from custom_components/whisker_ting/manifest.json (msgpack==1.2.1).
 # HA normally installs manifest requirements itself; PHACC's test harness does not,
 # so it's pinned here too -- importing custom_components.whisker_ting.api otherwise
 # fails at collection time via __init__ -> coordinator -> websocket -> msgpack.
