@@ -15,12 +15,17 @@ from homeassistant.util import dt as dt_util
 
 from .api import (
     DeviceState,
+    TingNotification,
     VoltageReading,
     WhiskerApiClient,
     WhiskerApiError,
     WhiskerAuthError,
 )
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    INSIGNIFICANT_NOTIFICATION_TYPES,  # noqa: F401 - consumed by _process_new_notifications (Task 4)
+)
 from .websocket import VoltageData, WhiskerWebSocketManager
 
 if TYPE_CHECKING:
@@ -188,6 +193,29 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                                     average_peaks_max=voltage_data.average_peaks_max,
                                 )
 
+            # Fetch notifications (best-effort; users poll stays authoritative).
+            try:
+                notifications = await self.client.get_notifications()
+            except WhiskerApiError as err:
+                _LOGGER.debug("Notifications fetch failed: %s", err)
+                notifications = None
+
+            if notifications is not None:
+                by_serial: dict[str, list[TingNotification]] = {}
+                for note in notifications:
+                    by_serial.setdefault(note.serial_number, []).append(note)
+                for device_state in data.values():
+                    device_state.notifications = by_serial.get(
+                        device_state.serial_number, []
+                    )
+                self._process_new_notifications(notifications)
+            elif self.data:
+                # Preserve the previous poll's notifications on a transient failure.
+                for device_id, device_state in data.items():
+                    existing = self.data.get(device_id)
+                    if existing:
+                        device_state.notifications = existing.notifications
+
         except WhiskerAuthError as err:
             self._last_update_success = False
             raise ConfigEntryAuthFailed(
@@ -202,6 +230,9 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             ) from err
         else:
             return data
+
+    def _process_new_notifications(self, notifications: list[TingNotification]) -> None:
+        """Detect new notifications and (Task 4) post opt-in HA notifications."""
 
 
 type WhiskerConfigEntry = ConfigEntry[WhiskerDataUpdateCoordinator]
