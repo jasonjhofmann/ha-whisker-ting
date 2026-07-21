@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -19,14 +17,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .coordinator import WhiskerDataUpdateCoordinator
-
-if TYPE_CHECKING:
-    from typing import TypeAlias
-
-    WhiskerConfigEntry: TypeAlias = ConfigEntry[WhiskerDataUpdateCoordinator]
-else:
-    WhiskerConfigEntry = ConfigEntry
+from .coordinator import WhiskerConfigEntry, WhiskerDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 import aiohttp
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -49,6 +50,13 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         self._ws_connected = False
         self._last_ws_push: datetime | None = None
 
+    async def _async_setup(self) -> None:
+        """One-time setup: create the WebSocket manager."""
+        self._ws_manager = WhiskerWebSocketManager(
+            session=self._session,
+            on_voltage_update=self._handle_voltage_update,
+        )
+
     def voltage_is_live(self, device_id: str) -> bool:
         """Return True if a fresh real-time voltage stream exists for a device."""
         if not self._ws_manager:
@@ -84,12 +92,6 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
 
     async def _connect_websocket(self, data: dict[str, DeviceState]) -> None:
         """Connect to WebSocket for real-time updates."""
-        if self._ws_manager is None:
-            self._ws_manager = WhiskerWebSocketManager(
-                session=self._session,
-                on_voltage_update=self._handle_voltage_update,
-            )
-
         if not data or self._ws_connected:
             return
 
@@ -185,3 +187,6 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             raise UpdateFailed(
                 f"Error communicating with Whisker Ting API: {err}"
             ) from err
+
+
+type WhiskerConfigEntry = ConfigEntry[WhiskerDataUpdateCoordinator]
