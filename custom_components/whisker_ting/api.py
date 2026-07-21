@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import logging
 from typing import Any
 
 import aiohttp
@@ -189,19 +189,23 @@ class WhiskerApiClient:
     async def _ensure_token(self) -> str:
         """Ensure we have a valid access token."""
         async with self._lock:
-            if self._access_token and self._token_expiry:
-                # Refresh if token expires in less than 5 minutes
-                if dt_util.utcnow() < self._token_expiry - timedelta(minutes=5):
-                    return self._access_token
+            # Refresh if token expires in less than 5 minutes
+            if (
+                self._access_token
+                and self._token_expiry
+                and dt_util.utcnow() < self._token_expiry - timedelta(minutes=5)
+            ):
+                return self._access_token
 
             # Need to authenticate or refresh
             if self._refresh_token:
                 try:
                     await self._refresh_access_token()
-                    return self._access_token
                 except AuthenticationError:
                     # Refresh failed, try full auth
                     pass
+                else:
+                    return self._access_token
 
             # Full authentication
             await self._authenticate()
@@ -404,7 +408,9 @@ class WhiskerApiClient:
             is_hvac_verified=data.get("isHvacVerified", False),
             has_frozen_pipe=data.get("hasFrozenPipe", False),
             is_owner=data.get("isOwner", False),
-            is_power_quality_hazard=bool(site.is_power_quality_hazard) if site else False,
+            is_power_quality_hazard=bool(site.is_power_quality_hazard)
+            if site
+            else False,
             fire_hazard_status=fire_hazard_status,
             group_name=group_data.get("name"),
             group_id=group_data.get("id"),
@@ -419,6 +425,7 @@ class WhiskerApiClient:
         """Test the connection to the API."""
         try:
             await self.get_user_data()
-            return True
         except WhiskerApiError:
             return False
+        else:
+            return True

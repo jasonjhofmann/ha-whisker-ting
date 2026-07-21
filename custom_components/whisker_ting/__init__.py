@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import timedelta
+import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WhiskerApiClient
@@ -15,9 +15,11 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
 )
 from .coordinator import WhiskerConfigEntry, WhiskerDataUpdateCoordinator
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 

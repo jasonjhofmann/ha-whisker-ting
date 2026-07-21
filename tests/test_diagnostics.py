@@ -4,6 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.whisker_ting.diagnostics import (
+    async_get_config_entry_diagnostics,
+)
 from homeassistant.core import HomeAssistant
 
 
@@ -25,10 +28,6 @@ def mock_ws_manager():
 async def test_diagnostics_redacts_secrets(
     hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
 ):
-    from custom_components.whisker_ting.diagnostics import (
-        async_get_config_entry_diagnostics,
-    )
-
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()

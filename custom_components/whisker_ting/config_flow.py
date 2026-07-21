@@ -74,7 +74,9 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 # Create a nice title
                 if user_data.first_name:
-                    title = f"Whisker Ting ({user_data.first_name} {user_data.last_name})"
+                    title = (
+                        f"Whisker Ting ({user_data.first_name} {user_data.last_name})"
+                    )
                 else:
                     title = f"Whisker Ting ({username})"
 
@@ -97,9 +99,7 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_reauth(
-        self, entry_data: dict[str, Any]
-    ) -> ConfigFlowResult:
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauth."""
         return await self.async_step_reauth_confirm()
 

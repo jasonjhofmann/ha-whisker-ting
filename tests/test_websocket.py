@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import msgpack
-import pytest
 
 from custom_components.whisker_ting.websocket import WhiskerWebSocket
 
@@ -44,10 +43,12 @@ class _FakeWS:
     async def close(self):
         self.closed = True
 
-    async def receive(self, timeout=None):
+    async def receive(self, timeout=None):  # noqa: ASYNC109 - mirrors aiohttp's
+        # ClientWebSocketResponse.receive(timeout=...) signature being mocked.
         if self._frames:
             return self._frames.pop(0)
         await asyncio.sleep(3600)
+        return None
 
 
 def _make(frames):
@@ -59,9 +60,12 @@ def _make(frames):
 
 async def test_connect_sends_api_key_header():
     handshake = _Msg(aiohttp.WSMsgType.TEXT, "{}\x1e")
-    session, ws = _make([handshake, _Msg(aiohttp.WSMsgType.BINARY, voltage_frame())])
+    session, _ws = _make([handshake, _Msg(aiohttp.WSMsgType.BINARY, voltage_frame())])
     client = WhiskerWebSocket(
-        session=session, api_key="secret-key", user_id=12345, station_id="TG-0001",
+        session=session,
+        api_key="secret-key",
+        user_id=12345,
+        station_id="TG-0001",
         on_voltage_update=lambda sid, data: None,
     )
     assert await client.connect() is True
@@ -73,16 +77,20 @@ async def test_connect_sends_api_key_header():
 async def test_decode_voltage():
     handshake = _Msg(aiohttp.WSMsgType.TEXT, "{}\x1e")
     frame = _Msg(aiohttp.WSMsgType.BINARY, voltage_frame())
-    session, ws = _make([handshake, frame])
+    session, _ws = _make([handshake, frame])
     seen = []
     client = WhiskerWebSocket(
-        session=session, api_key="k", user_id=1, station_id="TG-0001",
+        session=session,
+        api_key="k",
+        user_id=1,
+        station_id="TG-0001",
         on_voltage_update=lambda sid, data: seen.append((sid, data)),
     )
     assert await client.connect() is True
     assert await client.wait_for_data(timeout=1.0) is True
     await client.disconnect()
-    assert seen and seen[0][0] == "TG-0001"
+    assert seen
+    assert seen[0][0] == "TG-0001"
     assert seen[0][1].voltage == 120.5
     assert seen[0][1].voltage_hi == 121.0
 
@@ -90,9 +98,12 @@ async def test_decode_voltage():
 async def test_rejection_fast_fail():
     handshake = _Msg(aiohttp.WSMsgType.TEXT, "{}\x1e")
     rej = _Msg(aiohttp.WSMsgType.BINARY, completion_frame())
-    session, ws = _make([handshake, rej])
+    session, _ws = _make([handshake, rej])
     client = WhiskerWebSocket(
-        session=session, api_key="k", user_id=1, station_id="TG-0001",
+        session=session,
+        api_key="k",
+        user_id=1,
+        station_id="TG-0001",
         on_voltage_update=lambda sid, data: None,
     )
     assert await client.connect() is True

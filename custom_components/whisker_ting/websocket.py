@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from dataclasses import dataclass
 import logging
 import struct
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import msgpack
@@ -15,6 +15,10 @@ import msgpack
 from homeassistant.util import dt as dt_util
 
 from .const import SIGNALR_URL
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,17 +190,13 @@ class WhiskerWebSocket:
 
         # The frame may be a single bare object (this client's framing) or one
         # or more length-prefixed SignalR messages; try both.
-        try:
+        with contextlib.suppress(Exception):
             candidates.append(msgpack.unpackb(data, raw=False, strict_map_key=False))
-        except Exception:  # noqa: BLE001 - probing; failures are expected
-            pass
-        try:
-            for body in self._iter_signalr_messages(data):
-                candidates.append(
-                    msgpack.unpackb(body, raw=False, strict_map_key=False)
-                )
-        except Exception:  # noqa: BLE001 - probing; failures are expected
-            pass
+        with contextlib.suppress(Exception):
+            candidates.extend(
+                msgpack.unpackb(body, raw=False, strict_map_key=False)
+                for body in self._iter_signalr_messages(data)
+            )
 
         for obj in candidates:
             doubles = self._doubles_from_message(obj)
@@ -281,12 +281,14 @@ class WhiskerWebSocket:
             self._stale_check_task = asyncio.create_task(self._stale_data_check_loop())
 
             _LOGGER.info("Connected to SignalR hub for station %s", self._station_id)
-            return True
 
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - connect spans network I/O, the
+            # protocol handshake, and encoding; any failure must resolve to False.
             _LOGGER.error("Failed to connect to SignalR hub: %s", err)
             self._connected = False
             return False
+        else:
+            return True
 
     async def disconnect(self) -> None:
         """Disconnect from the SignalR hub."""
@@ -296,10 +298,8 @@ class WhiskerWebSocket:
         for task in [self._ping_task, self._receive_task, self._stale_check_task]:
             if task:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         self._ping_task = None
         self._receive_task = None
@@ -311,8 +311,11 @@ class WhiskerWebSocket:
 
         _LOGGER.debug("Disconnected from SignalR hub")
 
-    async def wait_for_data(self, timeout: float = 5.0) -> bool:
+    async def wait_for_data(self, timeout: float = 5.0) -> bool:  # noqa: ASYNC109
         """Return True on first data, False on timeout or server rejection."""
+        # `timeout` is this method's own public contract (used below via
+        # asyncio.wait), not a passthrough to another timeout-aware call;
+        # callers (coordinator, tests) rely on this signature.
         data_task = asyncio.ensure_future(self._first_data_received.wait())
         reject_task = asyncio.ensure_future(self._stream_rejected.wait())
         try:
@@ -366,18 +369,22 @@ class WhiskerWebSocket:
                     self._connected = False
                     break
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.debug("WebSocket receive timeout, continuing...")
             except asyncio.CancelledError:
                 break
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - background task must not
+                # die silently on an unexpected error; log and stop cleanly.
                 _LOGGER.error("Error in receive loop: %s", err)
                 self._connected = False
                 break
 
         # Notify manager that we disconnected (for reconnection)
         if not self._shutting_down and self._on_disconnect:
-            _LOGGER.warning("WebSocket disconnected for station %s, triggering reconnect", self._station_id)
+            _LOGGER.warning(
+                "WebSocket disconnected for station %s, triggering reconnect",
+                self._station_id,
+            )
             self._on_disconnect(self._station_id)
 
     async def _stale_data_check_loop(self) -> None:
@@ -392,23 +399,26 @@ class WhiskerWebSocket:
                 if not self._connected or self._shutting_down:
                     break
 
-                if self._last_data_time:
-                    time_since_update = (dt_util.utcnow() - self._last_data_time).total_seconds()
-                    if time_since_update > self.STALE_DATA_THRESHOLD:
-                        _LOGGER.error(
-                            "WebSocket data stale for station %s (no update in %.0f seconds), reconnecting",
-                            self._station_id,
-                            time_since_update,
-                        )
-                        self._connected = False
-                        # Trigger reconnect via callback
-                        if self._on_disconnect:
-                            self._on_disconnect(self._station_id)
-                        break
+                # _last_data_time is guaranteed set here (see the None check above).
+                time_since_update = (
+                    dt_util.utcnow() - self._last_data_time
+                ).total_seconds()
+                if time_since_update > self.STALE_DATA_THRESHOLD:
+                    _LOGGER.error(
+                        "WebSocket data stale for station %s (no update in %.0f seconds), reconnecting",
+                        self._station_id,
+                        time_since_update,
+                    )
+                    self._connected = False
+                    # Trigger reconnect via callback
+                    if self._on_disconnect:
+                        self._on_disconnect(self._station_id)
+                    break
 
             except asyncio.CancelledError:
                 break
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - background task must not
+                # die silently on an unexpected error; log and stop cleanly.
                 _LOGGER.error("Error in stale data check: %s", err)
                 break
 
@@ -423,7 +433,8 @@ class WhiskerWebSocket:
                     _LOGGER.debug("Sent ping")
             except asyncio.CancelledError:
                 break
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - background task must not
+                # die silently on an unexpected error; log and stop cleanly.
                 _LOGGER.error("Error in ping loop: %s", err)
                 break
 
@@ -492,7 +503,10 @@ class WhiskerWebSocketManager:
             del self._connections[station_id]
 
         # Schedule reconnection
-        if station_id not in self._reconnect_tasks or self._reconnect_tasks[station_id].done():
+        if (
+            station_id not in self._reconnect_tasks
+            or self._reconnect_tasks[station_id].done()
+        ):
             self._reconnect_tasks[station_id] = asyncio.create_task(
                 self._reconnect_with_backoff(station_id)
             )
@@ -500,7 +514,9 @@ class WhiskerWebSocketManager:
     async def _reconnect_with_backoff(self, station_id: str) -> None:
         """Reconnect to a station with exponential backoff."""
         if station_id not in self._credentials:
-            _LOGGER.error("No credentials stored for station %s, cannot reconnect", station_id)
+            _LOGGER.error(
+                "No credentials stored for station %s, cannot reconnect", station_id
+            )
             return
 
         creds = self._credentials[station_id]
@@ -516,7 +532,7 @@ class WhiskerWebSocketManager:
 
         # Calculate delay with exponential backoff
         delay = min(
-            self.RECONNECT_MIN_DELAY * (self.RECONNECT_BACKOFF_FACTOR ** attempts),
+            self.RECONNECT_MIN_DELAY * (self.RECONNECT_BACKOFF_FACTOR**attempts),
             self.RECONNECT_MAX_DELAY,
         )
 
@@ -548,7 +564,9 @@ class WhiskerWebSocketManager:
             self._connections[station_id] = ws
             _LOGGER.info("Reconnected to station %s", station_id)
         else:
-            _LOGGER.warning("Reconnection failed for station %s, will retry", station_id)
+            _LOGGER.warning(
+                "Reconnection failed for station %s, will retry", station_id
+            )
             # Schedule another reconnect attempt
             if not self._shutting_down:
                 self._reconnect_tasks[station_id] = asyncio.create_task(
@@ -595,10 +613,8 @@ class WhiskerWebSocketManager:
         for task in self._reconnect_tasks.values():
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
         self._reconnect_tasks.clear()
 
         # Disconnect all connections
@@ -613,21 +629,21 @@ class WhiskerWebSocketManager:
             task = self._reconnect_tasks[station_id]
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
             del self._reconnect_tasks[station_id]
 
         if station_id in self._connections:
             await self._connections[station_id].disconnect()
             del self._connections[station_id]
 
-    async def wait_for_data(self, station_id: str, timeout: float = 5.0) -> bool:
+    async def wait_for_data(self, station_id: str, timeout: float = 5.0) -> bool:  # noqa: ASYNC109
         """Wait for first voltage data from a specific station.
 
         Returns True if data was received, False if timeout or not connected.
         """
+        # `timeout` forwards to WhiskerWebSocket.wait_for_data's own timeout
+        # contract; not a passthrough to another timeout-aware call.
         ws = self._connections.get(station_id)
         if ws:
             return await ws.wait_for_data(timeout=timeout)

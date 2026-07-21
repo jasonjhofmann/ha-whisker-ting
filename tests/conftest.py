@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,12 +12,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.syrupy import (
     HomeAssistantSnapshotExtension,
 )
-from syrupy.assertion import SnapshotAssertion
 
 from custom_components.whisker_ting.api import WhiskerApiClient
 from custom_components.whisker_ting.const import DOMAIN
 
 from .const import TEST_USER_ID, TEST_USERNAME, USER_INPUT
+
+if TYPE_CHECKING:
+    from syrupy.assertion import SnapshotAssertion
 
 
 @pytest.fixture(autouse=True)
@@ -66,9 +69,7 @@ def mock_client(user_data_dict):
         d.serial_number: d for d in user.devices
     }
     with (
-        patch(
-            "custom_components.whisker_ting.WhiskerApiClient", return_value=client
-        ),
+        patch("custom_components.whisker_ting.WhiskerApiClient", return_value=client),
         patch(
             "custom_components.whisker_ting.config_flow.WhiskerApiClient",
             return_value=client,

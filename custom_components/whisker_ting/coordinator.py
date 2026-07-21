@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import datetime, timedelta
-
-import aiohttp
+import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -14,9 +13,18 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import DeviceState, VoltageReading, WhiskerApiClient, WhiskerApiError, WhiskerAuthError
+from .api import (
+    DeviceState,
+    VoltageReading,
+    WhiskerApiClient,
+    WhiskerApiError,
+    WhiskerAuthError,
+)
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .websocket import VoltageData, WhiskerWebSocketManager
+
+if TYPE_CHECKING:
+    import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,13 +72,15 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         return self._ws_manager.is_data_fresh(device_id)
 
     @callback
-    def _handle_voltage_update(self, station_id: str, voltage_data: VoltageData) -> None:
+    def _handle_voltage_update(
+        self, station_id: str, voltage_data: VoltageData
+    ) -> None:
         """Handle real-time voltage update from WebSocket."""
         if self.data is None:
             return
 
         # Find the device with this station_id
-        for device_id, device_state in self.data.items():
+        for device_state in self.data.values():
             if device_state.station_id == station_id:
                 # Update the in-memory reading immediately...
                 device_state.voltage = VoltageReading(
@@ -119,7 +129,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                             device_state.station_id,
                         )
                         self._ws_connected = True
-                except Exception as err:
+                except Exception as err:  # noqa: BLE001 - one device's failure must not abort the rest
                     _LOGGER.warning(
                         "Failed to connect WebSocket for device %s: %s",
                         device_id,
@@ -156,16 +166,20 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 if self._ws_connected and self._ws_manager:
                     # Wait for data from all devices in parallel
                     wait_tasks = [
-                        self._ws_manager.wait_for_data(device_state.station_id, timeout=5.0)
+                        self._ws_manager.wait_for_data(
+                            device_state.station_id, timeout=5.0
+                        )
                         for device_state in data.values()
                         if device_state.station_id
                     ]
                     if wait_tasks:
                         await asyncio.gather(*wait_tasks)
                     # Update data with voltage readings received
-                    for device_id, device_state in data.items():
+                    for device_state in data.values():
                         if device_state.station_id:
-                            voltage_data = self._ws_manager.get_voltage_data(device_state.station_id)
+                            voltage_data = self._ws_manager.get_voltage_data(
+                                device_state.station_id
+                            )
                             if voltage_data:
                                 device_state.voltage = VoltageReading(
                                     voltage=voltage_data.voltage,
@@ -174,7 +188,6 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                                     average_peaks_max=voltage_data.average_peaks_max,
                                 )
 
-            return data
         except WhiskerAuthError as err:
             self._last_update_success = False
             raise ConfigEntryAuthFailed(
@@ -187,6 +200,8 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             raise UpdateFailed(
                 f"Error communicating with Whisker Ting API: {err}"
             ) from err
+        else:
+            return data
 
 
 type WhiskerConfigEntry = ConfigEntry[WhiskerDataUpdateCoordinator]

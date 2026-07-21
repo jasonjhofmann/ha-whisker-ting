@@ -3,10 +3,10 @@
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-import homeassistant.util.dt as dt_util
 import pytest
 
 from custom_components.whisker_ting.api import WhiskerApiClient
+import homeassistant.util.dt as dt_util
 
 
 @pytest.fixture

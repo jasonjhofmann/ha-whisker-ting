@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api import DeviceState
 from .entity import WhiskerEntity
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .api import DeviceState
 
 PARALLEL_UPDATES = 0  # Coordinator handles all updates
 
@@ -110,16 +115,13 @@ async def async_setup_entry(
     """Set up Whisker Ting binary sensors from a config entry."""
     coordinator = entry.runtime_data
 
-    entities: list[WhiskerBinarySensor] = []
-    for device_id, device_state in coordinator.data.items():
-        for description in BINARY_SENSOR_DESCRIPTIONS:
-            entities.append(
-                WhiskerBinarySensor(
-                    coordinator=coordinator,
-                    device_id=device_id,
-                    description=description,
-                )
-            )
+    entities: list[WhiskerBinarySensor] = [
+        WhiskerBinarySensor(
+            coordinator=coordinator, device_id=device_id, description=description
+        )
+        for device_id in coordinator.data
+        for description in BINARY_SENSOR_DESCRIPTIONS
+    ]
 
     async_add_entities(entities)
 

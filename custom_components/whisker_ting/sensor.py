@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,14 +11,19 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfElectricPotential
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .api import DeviceState
 from .entity import WhiskerEntity
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .api import DeviceState
 
 PARALLEL_UPDATES = 0  # Coordinator handles all updates
 
@@ -45,7 +49,9 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
         realtime=True,
-        value_fn=lambda state: state.voltage.voltage if state.voltage.voltage > 0 else None,
+        value_fn=lambda state: (
+            state.voltage.voltage if state.voltage.voltage > 0 else None
+        ),
     ),
     WhiskerSensorEntityDescription(
         key="voltage_high",
@@ -55,7 +61,9 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
         realtime=True,
-        value_fn=lambda state: state.voltage.voltage_hi if state.voltage.voltage_hi > 0 else None,
+        value_fn=lambda state: (
+            state.voltage.voltage_hi if state.voltage.voltage_hi > 0 else None
+        ),
     ),
     WhiskerSensorEntityDescription(
         key="voltage_low",
@@ -65,7 +73,9 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         suggested_display_precision=2,
         realtime=True,
-        value_fn=lambda state: state.voltage.voltage_lo if state.voltage.voltage_lo > 0 else None,
+        value_fn=lambda state: (
+            state.voltage.voltage_lo if state.voltage.voltage_lo > 0 else None
+        ),
     ),
     WhiskerSensorEntityDescription(
         key="average_peaks_max",
@@ -76,7 +86,11 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
         realtime=True,
-        value_fn=lambda state: state.voltage.average_peaks_max if state.voltage.average_peaks_max > 0 else None,
+        value_fn=lambda state: (
+            state.voltage.average_peaks_max
+            if state.voltage.average_peaks_max > 0
+            else None
+        ),
     ),
     # Primary status sensors (enabled by default)
     WhiskerSensorEntityDescription(
@@ -84,7 +98,10 @@ SENSOR_DESCRIPTIONS: tuple[WhiskerSensorEntityDescription, ...] = (
         translation_key="hazard_status",
         device_class=SensorDeviceClass.ENUM,
         options=["no_hazards", "hazard_detected", "reviewed_not_fire", "learning"],
-        value_fn=lambda state: _get_hazard_status(state),
+        # Not just an unnecessary wrapper: _get_hazard_status is defined below
+        # this tuple, so a direct reference would be a NameError at module
+        # load; the lambda defers the lookup to call time.
+        value_fn=lambda state: _get_hazard_status(state),  # noqa: PLW0108
     ),
     WhiskerSensorEntityDescription(
         key="hazard_message",
@@ -199,16 +216,13 @@ async def async_setup_entry(
     """Set up Whisker Ting sensors from a config entry."""
     coordinator = entry.runtime_data
 
-    entities: list[WhiskerSensor] = []
-    for device_id, device_state in coordinator.data.items():
-        for description in SENSOR_DESCRIPTIONS:
-            entities.append(
-                WhiskerSensor(
-                    coordinator=coordinator,
-                    device_id=device_id,
-                    description=description,
-                )
-            )
+    entities: list[WhiskerSensor] = [
+        WhiskerSensor(
+            coordinator=coordinator, device_id=device_id, description=description
+        )
+        for device_id in coordinator.data
+        for description in SENSOR_DESCRIPTIONS
+    ]
 
     async_add_entities(entities)
 
