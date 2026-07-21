@@ -109,9 +109,6 @@ class DeviceState:
     group_name: str | None = None
     group_id: int | None = None
 
-    # Raw data for debugging
-    raw_data: dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass
 class Site:
@@ -411,7 +408,6 @@ class WhiskerApiClient:
             fire_hazard_status=fire_hazard_status,
             group_name=group_data.get("name"),
             group_id=group_data.get("id"),
-            raw_data=data,
         )
 
     async def get_all_device_states(self) -> dict[str, DeviceState]:
