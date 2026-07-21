@@ -55,6 +55,7 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 | Option | Description |
 |---|---|
 | **Update interval** | How often, in seconds, the integration polls the Ting API for hazard and diagnostic data. Range 30–3600, default 60. Real-time voltage sensors are unaffected by this setting — they update continuously from the WebSocket stream. |
+| **Alert notifications** | Post a Home Assistant persistent notification for each new *significant* Ting alert — power outages, restorations, fire, and frozen-pipe alerts. Off by default (opt-in). Brownouts (`Sag`/`Swell`) and weather alerts are never posted this way by design; automate on the `Alerts` event entity or the `Last brownout` / `Last weather alert` sensors instead — see [Automations](#automations) below. |
 
 ## Removal
 
@@ -63,6 +64,10 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 3. If it was installed through HACS, open **HACS** → **Integrations**, find **Whisker Ting**, open its three-dot menu, and select **Remove** to remove the repository and files.
 
 ## Entities
+
+### Multi-device installs
+
+Each Ting device is added to Home Assistant as its own device, named after its Ting **site** (e.g. "Kitchen", "Garage") rather than one shared account name — so accounts with multiple sensors get distinguishable devices, and entity IDs are prefixed with the site's slug (e.g. `binary_sensor.kitchen_power_outage`). This follows normal Home Assistant rename semantics: upgrading does not rename entities you already have just because the underlying device name changed — only entities created fresh (a new install, a newly added device, or a newly enabled entity) pick up the site-based name.
 
 ### Sensors
 
@@ -86,6 +91,8 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 | Serial Number | Device serial number | Diagnostic | No |
 | Subscription Start | Timestamp the Ting subscription began | Diagnostic | No |
 | Group | Ting account group/location name | Diagnostic | No |
+| Last brownout | Timestamp of the most recent brownout (voltage sag/swell) notification from Ting; the notification message is in the `message` attribute | — | Yes |
+| Last weather alert | Timestamp of the most recent weather-alert notification relayed by Ting; the alert's `title` and `message` are in attributes | — | Yes |
 
 ### Binary sensors
 
@@ -96,6 +103,7 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 | Utility Fire Hazard | On when a utility-side fire hazard (UFH) is active | — | Yes |
 | Frozen Pipe Risk | On when Ting detects a frozen-pipe risk condition | — | Yes |
 | Power Quality Hazard | On when a site-level power-quality hazard is detected | — | Yes |
+| Power outage | On while the device's most recent power event is an unrestored outage, derived from Ting's `PowerOutage`/`PowerRestored`/`PowerOutageAndRestored` notifications (per Ting, unplugging the sensor itself also trips this) | — | Yes |
 | Connectivity | On while the real-time WebSocket stream is live | Diagnostic | Yes |
 | Learning Mode | On while Ting is in its initial learning period | — | Yes |
 | HVAC Verified | On when Ting has verified HVAC equipment on the circuit | Diagnostic | No |
@@ -103,11 +111,90 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 
 > **Note:** the Utility Fire Hazard binary sensor's entity ID keeps the legacy `unverified_fire_hazard` key for backward compatibility with existing installs — only its display name changed.
 
+### Events
+
+| Name | Description | Category | Enabled by default |
+|---|---|---|---|
+| Alerts | Fires once for each new Ting notification. `event_type` is one of `PowerOutage`, `PowerOutageAndRestored`, `PowerRestored`, `Sag`, `Swell`, `WeatherAlert`, `FireHazard`, `FrozenPipe`, or `unknown` (for any type Ting adds that this integration doesn't yet recognize) | — | Yes |
+
+Each fired event also carries the notification's details as attributes: `title`, `subtitle`, `message`, `category` (Ting's event category, e.g. `PowerQuality`), `raw_event_type` (Ting's original type string — useful when `event_type` above is `unknown`), `timestamp` (when Ting recorded the event), `notification_id`, `acknowledged`, and `cleared`.
+
 ## Requirements
 
 - Home Assistant 2024.12.0 or newer
 - A Whisker Labs Ting device
 - A Whisker Labs account
+
+## Automations
+
+The entities above are built to be automated against directly — no template sensors required. Each example below is a single automation's config, as you'd paste into Home Assistant's **Edit in YAML** automation editor; if you're editing `automations.yaml` directly, wrap it in a list item under the top-level `automation:` key. Replace `<device>` with your device's slug — the lowercase, underscore-separated form of its name as shown in **Settings** → **Devices & Services** (e.g. `kitchen`, `living_room`); see [Multi-device installs](#multi-device-installs) above if you have more than one Ting device.
+
+### Event-triggered: notify on a new power outage
+
+The `Alerts` event entity fires on every new Ting notification. Trigger on any state change of the entity and filter by `event_type` in a condition, rather than scoping the trigger to that attribute directly — an `attribute:`-scoped state trigger only re-fires when the attribute's *value* changes, so it would silently miss a second `PowerOutage` notification arriving without a `PowerRestored` in between:
+
+```yaml
+alias: "Ting: notify on power outage"
+trigger:
+  - platform: state
+    entity_id: event.<device>_alerts
+condition:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.event_type == 'PowerOutage' }}"
+action:
+  - service: notify.mobile_app_phone
+    data:
+      title: Ting power outage
+      message: "{{ trigger.to_state.attributes.message }}"
+```
+
+### State-based: notify only on a sustained outage
+
+The `Power outage` binary sensor is a plain on/off state, so a regular `for:`-qualified state trigger works well here — this waits 5 minutes before notifying, to skip momentary blips:
+
+```yaml
+alias: "Ting: notify on sustained power outage"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.<device>_power_outage
+    to: "on"
+    for: "00:05:00"
+action:
+  - service: notify.mobile_app_phone
+    data:
+      title: Ting power outage
+      message: "{{ state_attr(trigger.entity_id, 'friendly_name') }} has been without power for 5 minutes."
+```
+
+### Recency: gate an automation on "did this just happen"
+
+`Last brownout` and `Last weather alert` hold the *timestamp* of the most recent occurrence rather than an on/off state, so freshness is a template condition, not a trigger. This example escalates the (Phase 1) Power Quality Hazard binary sensor into a notification only when a brownout was also recorded in the last 10 minutes:
+
+```yaml
+alias: "Ting: escalate power-quality hazard after a recent brownout"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.<device>_power_quality_hazard
+    to: "on"
+condition:
+  - condition: template
+    value_template: "{{ (now() - states.sensor.<device>_last_brownout.state | as_datetime) < timedelta(minutes=10) }}"
+action:
+  - service: notify.mobile_app_phone
+    data:
+      title: Ting power-quality hazard
+      message: A power-quality hazard was flagged shortly after a brownout was recorded.
+```
+
+`Last brownout` reads `unknown` until the first brownout notification ever arrives, which makes the condition above evaluate to false rather than error.
+
+### Importable blueprint
+
+For the common case — notify on outage, optionally notify on restore — skip writing YAML: in Home Assistant, go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and import [`power_outage_notification.yaml`](blueprints/automation/whisker_ting/power_outage_notification.yaml) from this repository (or copy it into your `config/blueprints/automation/whisker_ting/` folder). It asks for your `Power outage` binary sensor and a notify target, and handles the rest.
+
+### Skip automations entirely
+
+Turn on **Alert notifications** under **Settings** → **Devices & Services** → **Whisker Ting** → **Configure** to have the integration post an HA persistent notification for each new significant alert itself — see [Options](#options) above.
 
 ## Troubleshooting
 
