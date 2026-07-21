@@ -15,19 +15,11 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfElectricPotential
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import (
-    CONNECTION_BLUETOOTH,
-    CONNECTION_NETWORK_MAC,
-    DeviceInfo,
-    format_mac,
-)
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .api import DeviceState
-from .const import DOMAIN
-from .coordinator import WhiskerDataUpdateCoordinator
+from .entity import WhiskerEntity
 
 PARALLEL_UPDATES = 0  # Coordinator handles all updates
 
@@ -221,56 +213,26 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class WhiskerSensor(CoordinatorEntity[WhiskerDataUpdateCoordinator], SensorEntity):
+class WhiskerSensor(WhiskerEntity, SensorEntity):
     """Representation of a Whisker Ting sensor."""
 
     entity_description: WhiskerSensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: WhiskerDataUpdateCoordinator,
+        coordinator,
         device_id: str,
         description: WhiskerSensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, device_id)
         self.entity_description = description
-        self._device_id = device_id
         self._attr_unique_id = f"{device_id}_{description.key}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        device_state = self.coordinator.data.get(self._device_id)
-        if device_state:
-            connections = set()
-            if device_state.wifi_mac_address:
-                connections.add(
-                    (CONNECTION_NETWORK_MAC, format_mac(device_state.wifi_mac_address))
-                )
-            if device_state.bluetooth_mac_address:
-                connections.add(
-                    (CONNECTION_BLUETOOTH, format_mac(device_state.bluetooth_mac_address))
-                )
-            return DeviceInfo(
-                identifiers={(DOMAIN, self._device_id)},
-                connections=connections,
-                name=device_state.name,
-                manufacturer="Whisker Labs",
-                model="Ting Fire Sensor",
-                sw_version=device_state.version,
-            )
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=self._device_id,
-            manufacturer="Whisker Labs",
-        )
 
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if not (super().available and self._device_id in self.coordinator.data):
+        if not super().available:
             return False
         # Real-time voltage sensors depend on a live WebSocket stream; report
         # unavailable when it is disconnected/stale instead of a frozen value.
