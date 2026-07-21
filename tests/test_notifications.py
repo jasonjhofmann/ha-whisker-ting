@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +15,7 @@ from custom_components.whisker_ting.api import (
     WhiskerApiClient,
     WhiskerApiError,
 )
+from homeassistant.helpers import entity_registry as er
 import homeassistant.util.dt as dt_util
 
 if TYPE_CHECKING:
@@ -200,3 +202,90 @@ async def test_auto_notify_disabled_does_not_post(
         await hass.async_block_till_done()
 
     create.assert_not_called()
+
+
+async def test_event_fires_on_new_no_backlog_replay(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    t0 = dt_util.utcnow()
+    # Setup with a backlog present — must NOT replay it as events.
+    mock_client.get_notifications.return_value = [
+        TingNotification(
+            id="old",
+            event_type="PowerRestored",
+            title="R",
+            serial_number="TG-0001",
+            sent_utc=t0,
+            timestamp=t0,
+        ),
+    ]
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    ent = next(
+        e
+        for e in er.async_entries_for_config_entry(reg, mock_config_entry.entry_id)
+        if e.domain == "event" and e.unique_id == "TG-0001_alerts"
+    )
+    state = hass.states.get(ent.entity_id)
+    assert state is not None
+    assert state.state in (None, "unknown")  # no replay
+
+    # A genuinely new notification on the next poll fires an event.
+    mock_client.get_notifications.return_value = [
+        TingNotification(
+            id="old",
+            event_type="PowerRestored",
+            title="R",
+            serial_number="TG-0001",
+            sent_utc=t0,
+            timestamp=t0,
+        ),
+        TingNotification(
+            id="new",
+            event_type="PowerOutage",
+            title="Outage",
+            message="m",
+            serial_number="TG-0001",
+            sent_utc=t0 + timedelta(minutes=1),
+            timestamp=t0 + timedelta(minutes=1),
+        ),
+    ]
+    await mock_config_entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get(ent.entity_id)
+    assert state.attributes["event_type"] == "PowerOutage"
+    assert state.attributes["message"] == "m"
+
+
+async def test_event_unknown_type_maps_to_unknown(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    t0 = dt_util.utcnow()
+    mock_client.get_notifications.return_value = []
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    mock_client.get_notifications.return_value = [
+        TingNotification(
+            id="x",
+            event_type="SomethingNew",
+            title="t",
+            serial_number="TG-0001",
+            sent_utc=t0 + timedelta(minutes=1),
+            timestamp=t0 + timedelta(minutes=1),
+        ),
+    ]
+    await mock_config_entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    reg = er.async_get(hass)
+    ent = next(
+        e
+        for e in er.async_entries_for_config_entry(reg, mock_config_entry.entry_id)
+        if e.domain == "event" and e.unique_id == "TG-0001_alerts"
+    )
+    state = hass.states.get(ent.entity_id)
+    assert state.attributes["event_type"] == "unknown"
+    assert state.attributes["event_type"] != state.attributes.get("category")
