@@ -68,6 +68,7 @@ def mock_client(user_data_dict):
     client.get_all_device_states.return_value = {
         d.serial_number: d for d in user.devices
     }
+    client.get_notifications.return_value = []
     with (
         patch("custom_components.whisker_ting.WhiskerApiClient", return_value=client),
         patch(

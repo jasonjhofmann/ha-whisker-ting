@@ -13,7 +13,7 @@ import aiohttp
 from homeassistant.util import dt as dt_util
 
 from .auth import AuthenticationError, WhiskerAuth
-from .const import API_BASE_URL, API_USERS_ENDPOINT
+from .const import API_BASE_URL, API_NOTIFICATIONS_ENDPOINT, API_USERS_ENDPOINT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,6 +109,9 @@ class DeviceState:
     group_name: str | None = None
     group_id: int | None = None
 
+    site_name: str | None = None
+    notifications: list[TingNotification] = field(default_factory=list)
+
 
 @dataclass
 class Site:
@@ -125,6 +128,24 @@ class Site:
     latitude: float | None = None
     longitude: float | None = None
     is_power_quality_hazard: bool = False
+
+
+@dataclass
+class TingNotification:
+    """A Ting notification (alert)."""
+
+    id: str
+    event_type: str
+    event_category: str | None = None
+    title: str | None = None
+    subtitle: str | None = None
+    message: str | None = None
+    timestamp: datetime | None = None  # from eventTimestampLocal (tz-aware)
+    sent_utc: datetime | None = None
+    serial_number: str | None = None
+    site_id: int | None = None
+    is_acknowledged: bool = False
+    is_cleared: bool = False
 
 
 @dataclass
@@ -411,6 +432,7 @@ class WhiskerApiClient:
             is_power_quality_hazard=bool(site.is_power_quality_hazard)
             if site
             else False,
+            site_name=site.display_name if site else None,
             fire_hazard_status=fire_hazard_status,
             group_name=group_data.get("name"),
             group_id=group_data.get("id"),
@@ -420,3 +442,33 @@ class WhiskerApiClient:
         """Get the state of all devices."""
         user_data = await self.get_user_data()
         return {device.serial_number: device for device in user_data.devices}
+
+    async def get_notifications(self) -> list[TingNotification]:
+        """Get the account's recent notifications (alerts)."""
+        if not self._user_id:
+            await self._ensure_token()
+        endpoint = API_NOTIFICATIONS_ENDPOINT.format(user_id=self._user_id)
+        data = await self._request("GET", endpoint)
+        if not isinstance(data, list):
+            return []
+        return [self._parse_notification(item) for item in data]
+
+    @staticmethod
+    def _parse_notification(data: dict[str, Any]) -> TingNotification:
+        """Parse one notification from the API."""
+        ts = data.get("eventTimestampLocal")
+        sent = data.get("sentUtc")
+        return TingNotification(
+            id=data.get("id", ""),
+            event_type=data.get("eventType", "unknown"),
+            event_category=data.get("eventCategory"),
+            title=data.get("title"),
+            subtitle=data.get("subtitle"),
+            message=data.get("message"),
+            timestamp=dt_util.parse_datetime(ts) if ts else None,
+            sent_utc=dt_util.parse_datetime(sent) if sent else None,
+            serial_number=data.get("serialNumber"),
+            site_id=data.get("siteId"),
+            is_acknowledged=data.get("isAcknowledged", False),
+            is_cleared=data.get("isCleared", False),
+        )
