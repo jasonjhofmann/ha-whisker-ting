@@ -130,6 +130,12 @@
       },
       "group_name": {
         "name": "Group"
+      },
+      "last_brownout": {
+        "name": "Last brownout"
+      },
+      "last_weather_alert": {
+        "name": "Last weather alert"
       }
     }
   }

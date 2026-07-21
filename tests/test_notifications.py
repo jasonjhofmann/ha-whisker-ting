@@ -19,6 +19,11 @@ from custom_components.whisker_ting.api import (
     WhiskerApiError,
 )
 from custom_components.whisker_ting.binary_sensor import _is_power_outage
+from custom_components.whisker_ting.const import (
+    BROWNOUT_EVENT_TYPES,
+    WEATHER_EVENT_TYPES,
+)
+from custom_components.whisker_ting.sensor import _latest_notification_of
 from homeassistant.helpers import entity_registry as er
 import homeassistant.util.dt as dt_util
 
@@ -334,3 +339,51 @@ def test_power_outage_derivation():
         sent_utc=t0 + timedelta(minutes=10),
     )
     assert _is_power_outage(dev([restored, new_outage])) is True  # latest is outage
+    outage_and_restored = _notif(
+        id="oar",
+        event_type="PowerOutageAndRestored",
+        serial_number="TG-0001",
+        timestamp=t0 + timedelta(minutes=15),
+        sent_utc=t0 + timedelta(minutes=15),
+    )
+    assert _is_power_outage(dev([outage_and_restored])) is False
+    outage_with_none_timestamp = _notif(
+        id="o3",
+        event_type="PowerOutage",
+        serial_number="TG-0001",
+        timestamp=None,
+        sent_utc=t0,
+    )
+    assert _is_power_outage(dev([outage_with_none_timestamp])) is False
+
+
+def test_last_event_sensors():
+    t0 = dt_util.utcnow()
+    notes = [
+        _notif(id="s1", event_type="Sag", timestamp=t0, message="old sag"),
+        _notif(
+            id="s2",
+            event_type="Swell",
+            timestamp=t0 + timedelta(minutes=10),
+            message="new",
+        ),
+        _notif(
+            id="w1",
+            event_type="WeatherAlert",
+            timestamp=t0 + timedelta(minutes=5),
+            title="Storm",
+            message="storm",
+        ),
+    ]
+    dev = DeviceState(
+        serial_number="TG-0001",
+        name="x",
+        device_type="FireSensor",
+        site_id=1,
+        fire_hazard_status=FireHazardStatus(),
+        voltage=VoltageReading(),
+        notifications=notes,
+    )
+    assert _latest_notification_of(dev, BROWNOUT_EVENT_TYPES).id == "s2"
+    assert _latest_notification_of(dev, WEATHER_EVENT_TYPES).id == "w1"
+    assert _latest_notification_of(dev, BROWNOUT_EVENT_TYPES).message == "new"
