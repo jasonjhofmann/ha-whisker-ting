@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.whisker_ting.api import TingNotification, WhiskerApiClient
+from custom_components.whisker_ting.api import (
+    TingNotification,
+    WhiskerApiClient,
+    WhiskerApiError,
+)
 import homeassistant.util.dt as dt_util
 
 if TYPE_CHECKING:
@@ -88,3 +92,111 @@ async def test_coordinator_attaches_notifications(
 
     device = mock_config_entry.runtime_data.data["TG-0001"]
     assert [n.id for n in device.notifications] == ["a"]  # only this device's
+
+
+async def test_notifications_preserved_on_transient_failure(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    mock_client.get_notifications.return_value = [
+        _notif(
+            id="a",
+            event_type="PowerOutage",
+            serial_number="TG-0001",
+            sent_utc=dt_util.utcnow(),
+            timestamp=dt_util.utcnow(),
+        ),
+    ]
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = mock_config_entry.runtime_data
+    assert [n.id for n in coordinator.data["TG-0001"].notifications] == ["a"]
+
+    mock_client.get_notifications.side_effect = WhiskerApiError("x")
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert [n.id for n in coordinator.data["TG-0001"].notifications] == ["a"]
+    assert coordinator.last_update_success is True
+
+
+async def test_auto_notify_posts_only_when_enabled(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    t0 = dt_util.utcnow()
+    mock_client.get_notifications.return_value = []  # seed: no notifications
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = mock_config_entry.runtime_data
+    coordinator.notify_enabled = True
+
+    # A new significant alert + a new brownout appear on the next poll.
+    mock_client.get_notifications.return_value = [
+        _notif(
+            id="new-outage",
+            event_type="PowerOutage",
+            title="Power Outage",
+            message="out",
+            serial_number="TG-0001",
+            sent_utc=t0,
+            timestamp=t0,
+        ),
+        _notif(
+            id="new-sag",
+            event_type="Sag",
+            title="Brownout",
+            message="sag",
+            serial_number="TG-0001",
+            sent_utc=t0,
+            timestamp=t0,
+        ),
+    ]
+
+    # Patch-and-assert the call rather than depending on persistent_notification
+    # internals (version-robust across HA releases).
+    with patch(
+        "custom_components.whisker_ting.coordinator.persistent_notification.async_create"
+    ) as create:
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    create.assert_called_once_with(
+        hass,
+        message="out",
+        title="Ting: Power Outage",
+        notification_id="whisker_ting_new-outage",
+    )
+
+
+async def test_auto_notify_disabled_does_not_post(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    t0 = dt_util.utcnow()
+    mock_client.get_notifications.return_value = []  # seed: no notifications
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = mock_config_entry.runtime_data
+    assert coordinator.notify_enabled is False  # opt-in: off by default
+
+    # A new significant alert appears on the next poll.
+    mock_client.get_notifications.return_value = [
+        _notif(
+            id="new-outage",
+            event_type="PowerOutage",
+            title="Power Outage",
+            message="out",
+            serial_number="TG-0001",
+            sent_utc=t0,
+            timestamp=t0,
+        ),
+    ]
+
+    with patch(
+        "custom_components.whisker_ting.coordinator.persistent_notification.async_create"
+    ) as create:
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    create.assert_not_called()

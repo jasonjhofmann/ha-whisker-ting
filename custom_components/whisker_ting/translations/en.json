@@ -34,10 +34,12 @@
       "init": {
         "title": "Configure Whisker Ting",
         "data": {
-          "scan_interval": "Update interval (seconds)"
+          "scan_interval": "Update interval (seconds)",
+          "alert_notifications": "Create Home Assistant notifications for alerts"
         },
         "data_description": {
-          "scan_interval": "How often to poll the Whisker Ting API for updates (30-3600 seconds)"
+          "scan_interval": "How often to poll the Whisker Ting API for updates (30-3600 seconds)",
+          "alert_notifications": "Post a Home Assistant notification when a significant Ting alert (e.g. a power outage) arrives."
         }
       }
     }

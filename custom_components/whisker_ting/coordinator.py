@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -24,7 +25,7 @@ from .api import (
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    INSIGNIFICANT_NOTIFICATION_TYPES,  # noqa: F401 - consumed by _process_new_notifications (Task 4)
+    INSIGNIFICANT_NOTIFICATION_TYPES,
 )
 from .websocket import VoltageData, WhiskerWebSocketManager
 
@@ -48,6 +49,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         client: WhiskerApiClient,
         session: aiohttp.ClientSession,
         update_interval_seconds: int = DEFAULT_SCAN_INTERVAL,
+        notify_enabled: bool = False,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -62,6 +64,9 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         self._ws_manager: WhiskerWebSocketManager | None = None
         self._ws_connected = False
         self._last_ws_push: datetime | None = None
+        self.notify_enabled = notify_enabled
+        self._seen_notification_ids: set[str] = set()
+        self._notifications_seeded = False
 
     async def _async_setup(self) -> None:
         """One-time setup: create the WebSocket manager."""
@@ -197,6 +202,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             try:
                 notifications = await self.client.get_notifications()
             except WhiskerApiError as err:
+                # Scope intentional: also catches WhiskerAuthError, but the users poll above already surfaces persistent auth failures via ConfigEntryAuthFailed.
                 _LOGGER.debug("Notifications fetch failed: %s", err)
                 notifications = None
 
@@ -232,7 +238,25 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             return data
 
     def _process_new_notifications(self, notifications: list[TingNotification]) -> None:
-        """Detect new notifications and (Task 4) post opt-in HA notifications."""
+        """Seed on first poll; on later polls, post opt-in HA notifications for new significant alerts."""
+        all_ids = {n.id for n in notifications}
+        if not self._notifications_seeded:
+            self._seen_notification_ids = all_ids
+            self._notifications_seeded = True
+            return
+        new = [n for n in notifications if n.id not in self._seen_notification_ids]
+        self._seen_notification_ids |= all_ids
+        if not (self.notify_enabled and new):
+            return
+        for note in new:
+            if note.event_type in INSIGNIFICANT_NOTIFICATION_TYPES:
+                continue
+            persistent_notification.async_create(
+                self.hass,
+                message=note.message or "",
+                title=f"Ting: {note.title}" if note.title else "Ting alert",
+                notification_id=f"{DOMAIN}_{note.id}",
+            )
 
 
 type WhiskerConfigEntry = ConfigEntry[WhiskerDataUpdateCoordinator]

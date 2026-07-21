@@ -11,9 +11,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WhiskerApiClient
 from .const import (
+    CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
 )
 from .coordinator import WhiskerConfigEntry, WhiskerDataUpdateCoordinator
@@ -31,11 +33,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> b
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+    notify_enabled = entry.options.get(
+        CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
+    )
 
     session = async_get_clientsession(hass)
     client = WhiskerApiClient(session, username, password)
 
-    coordinator = WhiskerDataUpdateCoordinator(hass, client, session, scan_interval)
+    coordinator = WhiskerDataUpdateCoordinator(
+        hass, client, session, scan_interval, notify_enabled
+    )
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
@@ -50,6 +57,9 @@ async def async_options_updated(hass: HomeAssistant, entry: WhiskerConfigEntry) 
     coordinator: WhiskerDataUpdateCoordinator = entry.runtime_data
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     coordinator.update_interval = timedelta(seconds=scan_interval)
+    coordinator.notify_enabled = entry.options.get(
+        CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
+    )
     _LOGGER.debug("Updated scan interval to %s seconds", scan_interval)
 
 

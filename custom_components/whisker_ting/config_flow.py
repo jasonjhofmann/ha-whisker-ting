@@ -19,9 +19,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import WhiskerApiClient, WhiskerAuthError, WhiskerConnectionError
 from .auth import AuthenticationError
 from .const import (
+    CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_SCAN_INTERVAL,
@@ -174,6 +176,12 @@ class WhiskerOptionsFlowHandler(OptionsFlow):
                         vol.Coerce(int),
                         vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                     ),
+                    vol.Required(
+                        CONF_ALERT_NOTIFICATIONS,
+                        default=self.config_entry.options.get(
+                            CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
+                        ),
+                    ): bool,
                 }
             ),
         )

@@ -167,7 +167,7 @@ async def test_options_flow(hass: HomeAssistant, mock_client, mock_config_entry)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"scan_interval": 120}
+        result["flow_id"], {"scan_interval": 120, "alert_notifications": True}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"] == {"scan_interval": 120}
+    assert result["data"] == {"scan_interval": 120, "alert_notifications": True}
