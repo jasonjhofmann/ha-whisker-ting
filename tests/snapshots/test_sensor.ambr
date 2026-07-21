@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: test_entities[binary_sensor.living_room_connectivity-entry]
+# name: test_entities[binary_sensor.home_connectivity-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -12,7 +12,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.living_room_connectivity',
+    'entity_id': 'binary_sensor.home_connectivity',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -35,21 +35,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_connectivity-state]
+# name: test_entities[binary_sensor.home_connectivity-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'connectivity',
-      'friendly_name': 'Living Room Connectivity',
+      'friendly_name': 'Home Connectivity',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_connectivity',
+    'entity_id': 'binary_sensor.home_connectivity',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'on',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_electrical_fire_hazard-entry]
+# name: test_entities[binary_sensor.home_electrical_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -62,7 +62,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_electrical_fire_hazard',
+    'entity_id': 'binary_sensor.home_electrical_fire_hazard',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -85,21 +85,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_electrical_fire_hazard-state]
+# name: test_entities[binary_sensor.home_electrical_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'safety',
-      'friendly_name': 'Living Room Electrical Fire Hazard',
+      'friendly_name': 'Home Electrical Fire Hazard',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_electrical_fire_hazard',
+    'entity_id': 'binary_sensor.home_electrical_fire_hazard',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_fire_hazard-entry]
+# name: test_entities[binary_sensor.home_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -112,7 +112,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_fire_hazard',
+    'entity_id': 'binary_sensor.home_fire_hazard',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -135,21 +135,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_fire_hazard-state]
+# name: test_entities[binary_sensor.home_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'safety',
-      'friendly_name': 'Living Room Fire Hazard',
+      'friendly_name': 'Home Fire Hazard',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_fire_hazard',
+    'entity_id': 'binary_sensor.home_fire_hazard',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_frozen_pipe_risk-entry]
+# name: test_entities[binary_sensor.home_frozen_pipe_risk-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -162,7 +162,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_frozen_pipe_risk',
+    'entity_id': 'binary_sensor.home_frozen_pipe_risk',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -185,21 +185,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_frozen_pipe_risk-state]
+# name: test_entities[binary_sensor.home_frozen_pipe_risk-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'cold',
-      'friendly_name': 'Living Room Frozen Pipe Risk',
+      'friendly_name': 'Home Frozen Pipe Risk',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_frozen_pipe_risk',
+    'entity_id': 'binary_sensor.home_frozen_pipe_risk',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_hvac_verified-entry]
+# name: test_entities[binary_sensor.home_hvac_verified-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -212,7 +212,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.living_room_hvac_verified',
+    'entity_id': 'binary_sensor.home_hvac_verified',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -235,7 +235,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_is_owner-entry]
+# name: test_entities[binary_sensor.home_is_owner-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -248,7 +248,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'binary_sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'binary_sensor.living_room_is_owner',
+    'entity_id': 'binary_sensor.home_is_owner',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -271,7 +271,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_learning_mode-entry]
+# name: test_entities[binary_sensor.home_learning_mode-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -284,7 +284,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_learning_mode',
+    'entity_id': 'binary_sensor.home_learning_mode',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -307,21 +307,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_learning_mode-state]
+# name: test_entities[binary_sensor.home_learning_mode-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'running',
-      'friendly_name': 'Living Room Learning Mode',
+      'friendly_name': 'Home Learning Mode',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_learning_mode',
+    'entity_id': 'binary_sensor.home_learning_mode',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_power_quality_hazard-entry]
+# name: test_entities[binary_sensor.home_power_quality_hazard-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -334,7 +334,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_power_quality_hazard',
+    'entity_id': 'binary_sensor.home_power_quality_hazard',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -357,21 +357,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_power_quality_hazard-state]
+# name: test_entities[binary_sensor.home_power_quality_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'safety',
-      'friendly_name': 'Living Room Power Quality Hazard',
+      'friendly_name': 'Home Power Quality Hazard',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_power_quality_hazard',
+    'entity_id': 'binary_sensor.home_power_quality_hazard',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_utility_fire_hazard-entry]
+# name: test_entities[binary_sensor.home_utility_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -384,7 +384,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_utility_fire_hazard',
+    'entity_id': 'binary_sensor.home_utility_fire_hazard',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -407,21 +407,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_utility_fire_hazard-state]
+# name: test_entities[binary_sensor.home_utility_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'safety',
-      'friendly_name': 'Living Room Utility Fire Hazard',
+      'friendly_name': 'Home Utility Fire Hazard',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_utility_fire_hazard',
+    'entity_id': 'binary_sensor.home_utility_fire_hazard',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'off',
   })
 # ---
-# name: test_entities[sensor.living_room_average_peaks_max-entry]
+# name: test_entities[sensor.home_average_peaks_max-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -436,7 +436,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_average_peaks_max',
+    'entity_id': 'sensor.home_average_peaks_max',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -459,7 +459,7 @@
     'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
   })
 # ---
-# name: test_entities[sensor.living_room_bluetooth_mac_address-entry]
+# name: test_entities[sensor.home_bluetooth_mac_address-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -472,7 +472,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_bluetooth_mac_address',
+    'entity_id': 'sensor.home_bluetooth_mac_address',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -495,7 +495,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_current_voltage-entry]
+# name: test_entities[sensor.home_current_voltage-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -510,7 +510,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_current_voltage',
+    'entity_id': 'sensor.home_current_voltage',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -536,23 +536,23 @@
     'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
   })
 # ---
-# name: test_entities[sensor.living_room_current_voltage-state]
+# name: test_entities[sensor.home_current_voltage-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'voltage',
-      'friendly_name': 'Living Room Current voltage',
+      'friendly_name': 'Home Current voltage',
       'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
       'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_current_voltage',
+    'entity_id': 'sensor.home_current_voltage',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'unknown',
   })
 # ---
-# name: test_entities[sensor.living_room_device_type-entry]
+# name: test_entities[sensor.home_device_type-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -565,7 +565,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_device_type',
+    'entity_id': 'sensor.home_device_type',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -588,20 +588,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_device_type-state]
+# name: test_entities[sensor.home_device_type-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Device Type',
+      'friendly_name': 'Home Device Type',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_device_type',
+    'entity_id': 'sensor.home_device_type',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'FireSensor',
   })
 # ---
-# name: test_entities[sensor.living_room_electrical_fire_hazard_level-entry]
+# name: test_entities[sensor.home_electrical_fire_hazard_level-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -616,7 +616,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_electrical_fire_hazard_level',
+    'entity_id': 'sensor.home_electrical_fire_hazard_level',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -639,21 +639,21 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_electrical_fire_hazard_level-state]
+# name: test_entities[sensor.home_electrical_fire_hazard_level-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Electrical fire hazard level',
+      'friendly_name': 'Home Electrical fire hazard level',
       'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_electrical_fire_hazard_level',
+    'entity_id': 'sensor.home_electrical_fire_hazard_level',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': '0',
   })
 # ---
-# name: test_entities[sensor.living_room_electrical_fire_hazard_message-entry]
+# name: test_entities[sensor.home_electrical_fire_hazard_message-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -666,7 +666,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_electrical_fire_hazard_message',
+    'entity_id': 'sensor.home_electrical_fire_hazard_message',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -689,20 +689,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_electrical_fire_hazard_message-state]
+# name: test_entities[sensor.home_electrical_fire_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Electrical Fire Hazard Message',
+      'friendly_name': 'Home Electrical Fire Hazard Message',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_electrical_fire_hazard_message',
+    'entity_id': 'sensor.home_electrical_fire_hazard_message',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'No Hazards Detected',
   })
 # ---
-# name: test_entities[sensor.living_room_electrical_fire_hazard_status-entry]
+# name: test_entities[sensor.home_electrical_fire_hazard_status-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -715,7 +715,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_electrical_fire_hazard_status',
+    'entity_id': 'sensor.home_electrical_fire_hazard_status',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -738,20 +738,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_electrical_fire_hazard_status-state]
+# name: test_entities[sensor.home_electrical_fire_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Electrical Fire Hazard Status',
+      'friendly_name': 'Home Electrical Fire Hazard Status',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_electrical_fire_hazard_status',
+    'entity_id': 'sensor.home_electrical_fire_hazard_status',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'none',
   })
 # ---
-# name: test_entities[sensor.living_room_firmware_version-entry]
+# name: test_entities[sensor.home_firmware_version-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -764,7 +764,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_firmware_version',
+    'entity_id': 'sensor.home_firmware_version',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -787,7 +787,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_group-entry]
+# name: test_entities[sensor.home_group-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -800,7 +800,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_group',
+    'entity_id': 'sensor.home_group',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -823,7 +823,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_hazard_message-entry]
+# name: test_entities[sensor.home_hazard_message-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -836,7 +836,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_hazard_message',
+    'entity_id': 'sensor.home_hazard_message',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -859,20 +859,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_hazard_message-state]
+# name: test_entities[sensor.home_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Hazard Message',
+      'friendly_name': 'Home Hazard Message',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_hazard_message',
+    'entity_id': 'sensor.home_hazard_message',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'No Hazards Detected',
   })
 # ---
-# name: test_entities[sensor.living_room_hazard_status-entry]
+# name: test_entities[sensor.home_hazard_status-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -892,7 +892,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_hazard_status',
+    'entity_id': 'sensor.home_hazard_status',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -915,11 +915,11 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_hazard_status-state]
+# name: test_entities[sensor.home_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'enum',
-      'friendly_name': 'Living Room Hazard Status',
+      'friendly_name': 'Home Hazard Status',
       'options': list([
         'no_hazards',
         'hazard_detected',
@@ -928,14 +928,14 @@
       ]),
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_hazard_status',
+    'entity_id': 'sensor.home_hazard_status',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'no_hazards',
   })
 # ---
-# name: test_entities[sensor.living_room_serial_number-entry]
+# name: test_entities[sensor.home_serial_number-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -948,7 +948,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_serial_number',
+    'entity_id': 'sensor.home_serial_number',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -971,7 +971,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_subscription_start-entry]
+# name: test_entities[sensor.home_subscription_start-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -984,7 +984,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_subscription_start',
+    'entity_id': 'sensor.home_subscription_start',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1007,7 +1007,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_utility_fire_hazard_message-entry]
+# name: test_entities[sensor.home_utility_fire_hazard_message-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1020,7 +1020,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_utility_fire_hazard_message',
+    'entity_id': 'sensor.home_utility_fire_hazard_message',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1043,20 +1043,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_utility_fire_hazard_message-state]
+# name: test_entities[sensor.home_utility_fire_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Utility Fire Hazard Message',
+      'friendly_name': 'Home Utility Fire Hazard Message',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_utility_fire_hazard_message',
+    'entity_id': 'sensor.home_utility_fire_hazard_message',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'No Hazards Detected',
   })
 # ---
-# name: test_entities[sensor.living_room_utility_fire_hazard_status-entry]
+# name: test_entities[sensor.home_utility_fire_hazard_status-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1069,7 +1069,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_utility_fire_hazard_status',
+    'entity_id': 'sensor.home_utility_fire_hazard_status',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1092,20 +1092,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_utility_fire_hazard_status-state]
+# name: test_entities[sensor.home_utility_fire_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Utility Fire Hazard Status',
+      'friendly_name': 'Home Utility Fire Hazard Status',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_utility_fire_hazard_status',
+    'entity_id': 'sensor.home_utility_fire_hazard_status',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'none',
   })
 # ---
-# name: test_entities[sensor.living_room_voltage_high-entry]
+# name: test_entities[sensor.home_voltage_high-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1120,7 +1120,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_voltage_high',
+    'entity_id': 'sensor.home_voltage_high',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1146,23 +1146,23 @@
     'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
   })
 # ---
-# name: test_entities[sensor.living_room_voltage_high-state]
+# name: test_entities[sensor.home_voltage_high-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'voltage',
-      'friendly_name': 'Living Room Voltage high',
+      'friendly_name': 'Home Voltage high',
       'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
       'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_voltage_high',
+    'entity_id': 'sensor.home_voltage_high',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'unknown',
   })
 # ---
-# name: test_entities[sensor.living_room_voltage_low-entry]
+# name: test_entities[sensor.home_voltage_low-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1177,7 +1177,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_voltage_low',
+    'entity_id': 'sensor.home_voltage_low',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1203,23 +1203,23 @@
     'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
   })
 # ---
-# name: test_entities[sensor.living_room_voltage_low-state]
+# name: test_entities[sensor.home_voltage_low-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'voltage',
-      'friendly_name': 'Living Room Voltage low',
+      'friendly_name': 'Home Voltage low',
       'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
       'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_voltage_low',
+    'entity_id': 'sensor.home_voltage_low',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'unknown',
   })
 # ---
-# name: test_entities[sensor.living_room_wifi_mac_address-entry]
+# name: test_entities[sensor.home_wifi_mac_address-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1232,7 +1232,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.living_room_wifi_mac_address',
+    'entity_id': 'sensor.home_wifi_mac_address',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,

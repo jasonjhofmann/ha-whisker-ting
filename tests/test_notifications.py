@@ -25,3 +25,12 @@ def test_parse_notifications():
     assert outage.timestamp.tzinfo is not None
     assert outage.sent_utc is not None
     assert outage.is_acknowledged is False
+
+
+def test_device_named_by_site():
+    raw = _load("user_data_multi.json")
+    parser = WhiskerApiClient.__new__(WhiskerApiClient)
+    user = WhiskerApiClient._parse_user_data(parser, raw)
+    by_serial = {d.serial_number: d for d in user.devices}
+    assert by_serial["TG-0001"].site_name == "Home - Kitchen"
+    assert by_serial["TG-0002"].site_name == "Home - Bedroom"

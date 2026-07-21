@@ -48,7 +48,7 @@ class WhiskerEntity(CoordinatorEntity[WhiskerDataUpdateCoordinator]):
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
             connections=connections,
-            name=device_state.name,
+            name=device_state.site_name or device_state.name,
             manufacturer="Whisker Labs",
             model="Ting Fire Sensor",
             sw_version=device_state.version,
