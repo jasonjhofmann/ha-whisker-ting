@@ -10,6 +10,8 @@ from typing import Any
 
 import aiohttp
 
+from homeassistant.util import dt as dt_util
+
 from .auth import AuthenticationError, WhiskerAuth
 from .const import API_BASE_URL, API_USERS_ENDPOINT
 
@@ -192,7 +194,7 @@ class WhiskerApiClient:
         async with self._lock:
             if self._access_token and self._token_expiry:
                 # Refresh if token expires in less than 5 minutes
-                if datetime.now() < self._token_expiry - timedelta(minutes=5):
+                if dt_util.utcnow() < self._token_expiry - timedelta(minutes=5):
                     return self._access_token
 
             # Need to authenticate or refresh
@@ -220,7 +222,7 @@ class WhiskerApiClient:
 
             # Use the lifetime Cognito reports rather than assuming one hour.
             expires_in = int(result.get("expires_in", 3600))
-            self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
+            self._token_expiry = dt_util.utcnow() + timedelta(seconds=expires_in)
 
             # Extract user info from attributes
             user_attrs = {
@@ -244,7 +246,7 @@ class WhiskerApiClient:
             self._access_token = result["AccessToken"]
             self._id_token = result.get("IdToken", self._id_token)
             expires_in = int(result.get("ExpiresIn", 3600))
-            self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
+            self._token_expiry = dt_util.utcnow() + timedelta(seconds=expires_in)
 
             _LOGGER.debug("Access token refreshed")
 

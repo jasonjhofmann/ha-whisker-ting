@@ -12,6 +12,8 @@ from typing import Any, Callable
 import aiohttp
 import msgpack
 
+from homeassistant.util import dt as dt_util
+
 from .const import SIGNALR_URL
 
 _LOGGER = logging.getLogger(__name__)
@@ -216,7 +218,7 @@ class WhiskerWebSocket:
             return None
 
         return VoltageData(
-            timestamp=datetime.now(),
+            timestamp=dt_util.utcnow(),
             voltage=voltage,
             average_peaks_max=peaks,
             voltage_hi=voltage_hi,
@@ -256,7 +258,7 @@ class WhiskerWebSocket:
             await self._ws.send_bytes(init_msg)
 
             self._connected = True
-            self._last_data_time = datetime.now()
+            self._last_data_time = dt_util.utcnow()
 
             # Start background tasks
             self._receive_task = asyncio.create_task(self._receive_loop())
@@ -320,7 +322,7 @@ class WhiskerWebSocket:
                     if b"updateComboBinaryData" in msg.data:
                         voltage_data = self._decode_voltage_data(msg.data)
                         if voltage_data and self._on_voltage_update:
-                            self._last_data_time = datetime.now()
+                            self._last_data_time = dt_util.utcnow()
                             self._on_voltage_update(self._station_id, voltage_data)
                             # Signal that we've received data
                             if not self._first_data_received.is_set():
@@ -363,7 +365,7 @@ class WhiskerWebSocket:
                     break
 
                 if self._last_data_time:
-                    time_since_update = (datetime.now() - self._last_data_time).total_seconds()
+                    time_since_update = (dt_util.utcnow() - self._last_data_time).total_seconds()
                     if time_since_update > self.STALE_DATA_THRESHOLD:
                         _LOGGER.error(
                             "WebSocket data stale for station %s (no update in %.0f seconds), reconnecting",
@@ -433,12 +435,12 @@ class WhiskerWebSocketManager:
         last = self._last_update_time.get(station_id)
         if last is None:
             return False
-        return (datetime.now() - last).total_seconds() <= max_age
+        return (dt_util.utcnow() - last).total_seconds() <= max_age
 
     def _handle_voltage_update(self, station_id: str, data: VoltageData) -> None:
         """Handle voltage update from WebSocket."""
         self._voltage_data[station_id] = data
-        self._last_update_time[station_id] = datetime.now()
+        self._last_update_time[station_id] = dt_util.utcnow()
         # Reset reconnect attempts on successful data
         self._reconnect_attempts[station_id] = 0
         _LOGGER.debug(

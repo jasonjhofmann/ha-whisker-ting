@@ -11,6 +11,7 @@ import aiohttp
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import DeviceState, VoltageReading, WhiskerApiClient, WhiskerApiError, WhiskerAuthError
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
@@ -72,7 +73,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 )
                 # ...but throttle how often we write HA state. The stream is
                 # ~4 Hz; pushing every frame churns every entity and the recorder.
-                now = datetime.now()
+                now = dt_util.utcnow()
                 if (
                     self._last_ws_push is None
                     or now - self._last_ws_push >= WS_PUSH_THROTTLE
