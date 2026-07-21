@@ -11,10 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.whisker_ting.api import (
+    DeviceState,
+    FireHazardStatus,
     TingNotification,
+    VoltageReading,
     WhiskerApiClient,
     WhiskerApiError,
 )
+from custom_components.whisker_ting.binary_sensor import _is_power_outage
 from homeassistant.helpers import entity_registry as er
 import homeassistant.util.dt as dt_util
 
@@ -289,3 +293,44 @@ async def test_event_unknown_type_maps_to_unknown(
     state = hass.states.get(ent.entity_id)
     assert state.attributes["event_type"] == "unknown"
     assert state.attributes["event_type"] != state.attributes.get("category")
+
+
+def test_power_outage_derivation():
+    t0 = dt_util.utcnow()
+
+    def dev(notes):
+        return DeviceState(
+            serial_number="TG-0001",
+            name="x",
+            device_type="FireSensor",
+            site_id=1,
+            fire_hazard_status=FireHazardStatus(),
+            voltage=VoltageReading(),
+            notifications=notes,
+        )
+
+    assert _is_power_outage(dev([])) is False
+    out = _notif(
+        id="o",
+        event_type="PowerOutage",
+        serial_number="TG-0001",
+        timestamp=t0,
+        sent_utc=t0,
+    )
+    restored = _notif(
+        id="r",
+        event_type="PowerRestored",
+        serial_number="TG-0001",
+        timestamp=t0 + timedelta(minutes=5),
+        sent_utc=t0 + timedelta(minutes=5),
+    )
+    assert _is_power_outage(dev([out])) is True
+    assert _is_power_outage(dev([out, restored])) is False  # latest is restore
+    new_outage = _notif(
+        id="o2",
+        event_type="PowerOutage",
+        serial_number="TG-0001",
+        timestamp=t0 + timedelta(minutes=10),
+        sent_utc=t0 + timedelta(minutes=10),
+    )
+    assert _is_power_outage(dev([restored, new_outage])) is True  # latest is outage

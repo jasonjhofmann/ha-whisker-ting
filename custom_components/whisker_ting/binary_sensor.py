@@ -12,6 +12,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 
+from .const import POWER_OUTAGE_EVENT_TYPES
 from .entity import WhiskerEntity
 
 if TYPE_CHECKING:
@@ -24,6 +25,19 @@ if TYPE_CHECKING:
     from .api import DeviceState
 
 PARALLEL_UPDATES = 0  # Coordinator handles all updates
+
+
+def _is_power_outage(state: DeviceState) -> bool:
+    """Return True while the device's most recent power event is an unrestored outage."""
+    power = [
+        n
+        for n in state.notifications
+        if n.event_type in POWER_OUTAGE_EVENT_TYPES and n.timestamp is not None
+    ]
+    if not power:
+        return False
+    latest = max(power, key=lambda n: n.timestamp)
+    return latest.event_type == "PowerOutage"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -73,6 +87,12 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[WhiskerBinarySensorEntityDescription, ...] = (
         translation_key="power_quality_hazard",
         device_class=BinarySensorDeviceClass.SAFETY,
         value_fn=lambda state: state.is_power_quality_hazard,
+    ),
+    WhiskerBinarySensorEntityDescription(
+        key="power_outage",
+        translation_key="power_outage",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=_is_power_outage,
     ),
     WhiskerBinarySensorEntityDescription(
         key="connectivity",
