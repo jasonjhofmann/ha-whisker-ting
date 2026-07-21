@@ -25,7 +25,8 @@
     },
     "abort": {
       "already_configured": "This account is already configured",
-      "reauth_successful": "Reauthentication successful"
+      "reauth_successful": "Reauthentication successful",
+      "wrong_account": "The credentials are for a different Whisker Ting account than the one being reauthenticated."
     }
   },
   "options": {
