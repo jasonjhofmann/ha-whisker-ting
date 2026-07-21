@@ -36,9 +36,6 @@ DEVICE_TYPE_FIRE_SENSOR = "FireSensor"
 HAZARD_STATUS_NO_HAZARD = "No Hazards Detected"
 HAZARD_STATUS_REVIEWED_NOT_FIRE = "ReviewedNotFire"
 
-# Platforms
-PLATFORMS = ["binary_sensor", "sensor"]
-
 # Notifications
 API_NOTIFICATIONS_ENDPOINT = "/api/v1/Notifications/history/{user_id}"
 
