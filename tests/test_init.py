@@ -45,6 +45,7 @@ async def test_setup_auth_failed_triggers_reauth(
     hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
 ):
     mock_client.get_all_device_states.side_effect = WhiskerAuthError("bad")
+    mock_client.test_connection.return_value = False
     mock_config_entry.add_to_hass(hass)
     assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
