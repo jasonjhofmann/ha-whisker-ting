@@ -51,7 +51,7 @@
         "name": "Electrical Fire Hazard"
       },
       "unverified_fire_hazard": {
-        "name": "Unverified Fire Hazard"
+        "name": "Utility Fire Hazard"
       },
       "frozen_pipe": {
         "name": "Frozen Pipe Risk"
@@ -95,10 +95,10 @@
         "name": "Electrical Fire Hazard Level"
       },
       "ufh_status": {
-        "name": "Unverified Fire Hazard Status"
+        "name": "Utility Fire Hazard Status"
       },
       "ufh_message": {
-        "name": "Unverified Fire Hazard Message"
+        "name": "Utility Fire Hazard Message"
       },
       "device_type": {
         "name": "Device Type"
