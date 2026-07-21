@@ -69,6 +69,7 @@ class WhiskerWebSocket:
         self._stale_check_task: asyncio.Task | None = None
         self._message_id = 0
         self._first_data_received = asyncio.Event()
+        self._stream_rejected = asyncio.Event()
         self._last_data_time: datetime | None = None
         self._shutting_down = False
 
@@ -225,6 +226,17 @@ class WhiskerWebSocket:
             voltage_lo=voltage_lo,
         )
 
+    def _frame_is_completion(self, data: bytes) -> bool:
+        """Return True if the frame is a SignalR Completion (message type 3)."""
+        for body in self._iter_signalr_messages(data):
+            try:
+                obj = msgpack.unpackb(body, raw=False, strict_map_key=False)
+            except Exception:  # noqa: BLE001 - probing
+                continue
+            if isinstance(obj, (list, tuple)) and obj and obj[0] == MSG_TYPE_COMPLETION:
+                return True
+        return False
+
     async def connect(self) -> bool:
         """Connect to the SignalR hub."""
         try:
@@ -234,6 +246,10 @@ class WhiskerWebSocket:
                 SIGNALR_URL,
                 headers={
                     "Origin": "ionic://localhost",
+                    # The hub authorizes at the HTTP-upgrade level via this
+                    # header, not via InitializeStreaming args. Without it the
+                    # server completes result:null and never streams.
+                    "x-wl-api-key": self._api_key,
                 },
             )
 
@@ -258,7 +274,6 @@ class WhiskerWebSocket:
             await self._ws.send_bytes(init_msg)
 
             self._connected = True
-            self._last_data_time = dt_util.utcnow()
 
             # Start background tasks
             self._receive_task = asyncio.create_task(self._receive_loop())
@@ -297,16 +312,20 @@ class WhiskerWebSocket:
         _LOGGER.debug("Disconnected from SignalR hub")
 
     async def wait_for_data(self, timeout: float = 5.0) -> bool:
-        """Wait for the first voltage data to be received.
-
-        Returns True if data was received, False if timeout.
-        """
+        """Return True on first data, False on timeout or server rejection."""
+        data_task = asyncio.ensure_future(self._first_data_received.wait())
+        reject_task = asyncio.ensure_future(self._stream_rejected.wait())
         try:
-            await asyncio.wait_for(self._first_data_received.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            _LOGGER.debug("Timeout waiting for first voltage data")
-            return False
+            await asyncio.wait(
+                {data_task, reject_task},
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (data_task, reject_task):
+                if not task.done():
+                    task.cancel()
+        return self._first_data_received.is_set()
 
     async def _receive_loop(self) -> None:
         """Receive messages from the WebSocket."""
@@ -327,6 +346,12 @@ class WhiskerWebSocket:
                             # Signal that we've received data
                             if not self._first_data_received.is_set():
                                 self._first_data_received.set()
+                    elif self._frame_is_completion(msg.data):
+                        _LOGGER.debug(
+                            "Stream rejected (Completion) for station %s",
+                            self._station_id,
+                        )
+                        self._stream_rejected.set()
                     elif msg.data == b"\x02\x91\x06":  # Ping response
                         _LOGGER.debug("Received ping response")
 
@@ -360,6 +385,9 @@ class WhiskerWebSocket:
         while self._connected and not self._shutting_down:
             try:
                 await asyncio.sleep(self.STALE_DATA_THRESHOLD)
+
+                if self._last_data_time is None:
+                    continue
 
                 if not self._connected or self._shutting_down:
                     break
@@ -407,6 +435,7 @@ class WhiskerWebSocketManager:
     RECONNECT_MIN_DELAY = 5
     RECONNECT_MAX_DELAY = 300  # 5 minutes max
     RECONNECT_BACKOFF_FACTOR = 2
+    RECONNECT_MAX_ATTEMPTS = 12
 
     def __init__(
         self,
@@ -476,6 +505,14 @@ class WhiskerWebSocketManager:
 
         creds = self._credentials[station_id]
         attempts = self._reconnect_attempts.get(station_id, 0)
+
+        if attempts >= self.RECONNECT_MAX_ATTEMPTS:
+            _LOGGER.error(
+                "Max reconnect attempts (%d) reached for station %s, giving up",
+                self.RECONNECT_MAX_ATTEMPTS,
+                station_id,
+            )
+            return
 
         # Calculate delay with exponential backoff
         delay = min(
