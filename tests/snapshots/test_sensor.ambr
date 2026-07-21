@@ -371,7 +371,7 @@
     'state': 'off',
   })
 # ---
-# name: test_entities[binary_sensor.living_room_unverified_fire_hazard-entry]
+# name: test_entities[binary_sensor.living_room_utility_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -384,7 +384,7 @@
     'disabled_by': None,
     'domain': 'binary_sensor',
     'entity_category': None,
-    'entity_id': 'binary_sensor.living_room_unverified_fire_hazard',
+    'entity_id': 'binary_sensor.living_room_utility_fire_hazard',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -392,12 +392,12 @@
     'labels': set({
     }),
     'name': None,
-    'object_id_base': 'Unverified Fire Hazard',
+    'object_id_base': 'Utility Fire Hazard',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.SAFETY: 'safety'>,
     'original_icon': None,
-    'original_name': 'Unverified Fire Hazard',
+    'original_name': 'Utility Fire Hazard',
     'platform': 'whisker_ting',
     'previous_unique_id': None,
     'suggested_object_id': None,
@@ -407,14 +407,14 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[binary_sensor.living_room_unverified_fire_hazard-state]
+# name: test_entities[binary_sensor.living_room_utility_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'device_class': 'safety',
-      'friendly_name': 'Living Room Unverified Fire Hazard',
+      'friendly_name': 'Living Room Utility Fire Hazard',
     }),
     'context': <ANY>,
-    'entity_id': 'binary_sensor.living_room_unverified_fire_hazard',
+    'entity_id': 'binary_sensor.living_room_utility_fire_hazard',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
@@ -1007,7 +1007,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_unverified_fire_hazard_message-entry]
+# name: test_entities[sensor.living_room_utility_fire_hazard_message-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1020,7 +1020,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_unverified_fire_hazard_message',
+    'entity_id': 'sensor.living_room_utility_fire_hazard_message',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1028,12 +1028,12 @@
     'labels': set({
     }),
     'name': None,
-    'object_id_base': 'Unverified Fire Hazard Message',
+    'object_id_base': 'Utility Fire Hazard Message',
     'options': dict({
     }),
     'original_device_class': None,
     'original_icon': None,
-    'original_name': 'Unverified Fire Hazard Message',
+    'original_name': 'Utility Fire Hazard Message',
     'platform': 'whisker_ting',
     'previous_unique_id': None,
     'suggested_object_id': None,
@@ -1043,20 +1043,20 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_unverified_fire_hazard_message-state]
+# name: test_entities[sensor.living_room_utility_fire_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Unverified Fire Hazard Message',
+      'friendly_name': 'Living Room Utility Fire Hazard Message',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_unverified_fire_hazard_message',
+    'entity_id': 'sensor.living_room_utility_fire_hazard_message',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': 'No Hazards Detected',
   })
 # ---
-# name: test_entities[sensor.living_room_unverified_fire_hazard_status-entry]
+# name: test_entities[sensor.living_room_utility_fire_hazard_status-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -1069,7 +1069,7 @@
     'disabled_by': None,
     'domain': 'sensor',
     'entity_category': None,
-    'entity_id': 'sensor.living_room_unverified_fire_hazard_status',
+    'entity_id': 'sensor.living_room_utility_fire_hazard_status',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -1077,12 +1077,12 @@
     'labels': set({
     }),
     'name': None,
-    'object_id_base': 'Unverified Fire Hazard Status',
+    'object_id_base': 'Utility Fire Hazard Status',
     'options': dict({
     }),
     'original_device_class': None,
     'original_icon': None,
-    'original_name': 'Unverified Fire Hazard Status',
+    'original_name': 'Utility Fire Hazard Status',
     'platform': 'whisker_ting',
     'previous_unique_id': None,
     'suggested_object_id': None,
@@ -1092,13 +1092,13 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_entities[sensor.living_room_unverified_fire_hazard_status-state]
+# name: test_entities[sensor.living_room_utility_fire_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Living Room Unverified Fire Hazard Status',
+      'friendly_name': 'Living Room Utility Fire Hazard Status',
     }),
     'context': <ANY>,
-    'entity_id': 'sensor.living_room_unverified_fire_hazard_status',
+    'entity_id': 'sensor.living_room_utility_fire_hazard_status',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
