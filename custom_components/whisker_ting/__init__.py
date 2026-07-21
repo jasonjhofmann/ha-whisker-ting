@@ -60,7 +60,11 @@ async def async_options_updated(hass: HomeAssistant, entry: WhiskerConfigEntry) 
     coordinator.notify_enabled = entry.options.get(
         CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
     )
-    _LOGGER.debug("Updated scan interval to %s seconds", scan_interval)
+    _LOGGER.debug(
+        "Updated options: scan_interval=%s notify_enabled=%s",
+        scan_interval,
+        coordinator.notify_enabled,
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> bool:

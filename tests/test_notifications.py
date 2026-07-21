@@ -24,6 +24,7 @@ from custom_components.whisker_ting.const import (
     WEATHER_EVENT_TYPES,
 )
 from custom_components.whisker_ting.sensor import _latest_notification_of
+from custom_components.whisker_ting.websocket import VoltageData
 from homeassistant.helpers import entity_registry as er
 import homeassistant.util.dt as dt_util
 
@@ -48,6 +49,22 @@ def test_parse_notifications():
     assert outage.timestamp.tzinfo is not None
     assert outage.sent_utc is not None
     assert outage.is_acknowledged is False
+
+
+def test_parse_notification_naive_timestamp_coerced_to_utc():
+    """A naive eventTimestampLocal/sentUtc (missing UTC offset) must still parse tz-aware."""
+    raw = {
+        "id": "n-naive",
+        "eventType": "PowerOutage",
+        "eventTimestampLocal": "2026-07-20T20:05:12",
+        "sentUtc": "2026-07-20T20:05:12",
+        "serialNumber": "TG-0001",
+    }
+    parsed = WhiskerApiClient._parse_notification(raw)
+    assert parsed.timestamp is not None
+    assert parsed.timestamp.tzinfo is not None
+    assert parsed.sent_utc is not None
+    assert parsed.sent_utc.tzinfo is not None
 
 
 def test_device_named_by_site():
@@ -103,6 +120,41 @@ async def test_coordinator_attaches_notifications(
 
     device = mock_config_entry.runtime_data.data["TG-0001"]
     assert [n.id for n in device.notifications] == ["a"]  # only this device's
+
+
+async def test_multi_device_notification_attribution(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    """With 2 real devices, each gets only its own serial's notifications."""
+    raw = _load("user_data_multi.json")
+    parser = WhiskerApiClient.__new__(WhiskerApiClient)
+    user = WhiskerApiClient._parse_user_data(parser, raw)
+    mock_client.get_all_device_states.return_value = {
+        d.serial_number: d for d in user.devices
+    }
+    mock_client.get_notifications.return_value = [
+        _notif(
+            id="a1",
+            event_type="PowerOutage",
+            serial_number="TG-0001",
+            sent_utc=dt_util.utcnow(),
+            timestamp=dt_util.utcnow(),
+        ),
+        _notif(
+            id="b1",
+            event_type="Sag",
+            serial_number="TG-0002",
+            sent_utc=dt_util.utcnow(),
+            timestamp=dt_util.utcnow(),
+        ),
+    ]
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    data = mock_config_entry.runtime_data.data
+    assert [n.id for n in data["TG-0001"].notifications] == ["a1"]
+    assert [n.id for n in data["TG-0002"].notifications] == ["b1"]
 
 
 async def test_notifications_preserved_on_transient_failure(
@@ -298,6 +350,53 @@ async def test_event_unknown_type_maps_to_unknown(
     state = hass.states.get(ent.entity_id)
     assert state.attributes["event_type"] == "unknown"
     assert state.attributes["event_type"] != state.attributes.get("category")
+
+
+async def test_voltage_push_fires_no_event(
+    hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
+):
+    """A throttled real-time voltage push must never fire the alerts event entity."""
+    t0 = dt_util.utcnow()
+    mock_client.get_notifications.return_value = [
+        TingNotification(
+            id="seed",
+            event_type="PowerRestored",
+            title="R",
+            serial_number="TG-0001",
+            sent_utc=t0,
+            timestamp=t0,
+        ),
+    ]
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    ent = next(
+        e
+        for e in er.async_entries_for_config_entry(reg, mock_config_entry.entry_id)
+        if e.domain == "event" and e.unique_id == "TG-0001_alerts"
+    )
+    state_before = hass.states.get(ent.entity_id)
+    assert state_before is not None
+
+    coordinator = mock_config_entry.runtime_data
+    station_id = coordinator.data["TG-0001"].station_id
+    coordinator._handle_voltage_update(
+        station_id,
+        VoltageData(
+            timestamp=dt_util.utcnow(),
+            voltage=120.1,
+            voltage_hi=121.0,
+            voltage_lo=119.0,
+            average_peaks_max=122.0,
+        ),
+    )
+    await hass.async_block_till_done()
+
+    state_after = hass.states.get(ent.entity_id)
+    assert state_after.state == state_before.state
+    assert state_after.attributes == state_before.attributes
 
 
 def test_power_outage_derivation():

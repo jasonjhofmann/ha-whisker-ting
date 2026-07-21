@@ -39,7 +39,7 @@ action:
   - choose:
       - conditions: "{{ trigger.id == 'outage' }}"
         sequence:
-          - service: !input notify_target
+          - action: !input notify_target
             data:
               title: Power outage
               message: >-
@@ -48,7 +48,7 @@ action:
           - "{{ trigger.id == 'restored' }}"
           - !input notify_on_restore
         sequence:
-          - service: !input notify_target
+          - action: !input notify_target
             data:
               title: Power restored
               message: >-

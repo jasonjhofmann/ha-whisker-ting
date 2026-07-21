@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any
 
@@ -38,6 +38,21 @@ def _reverse_mac(mac: str | None) -> str | None:
         return mac
     octets = [hex_only[i : i + 2] for i in range(0, 12, 2)]
     return ":".join(reversed(octets)).lower()
+
+
+def _parse_aware_datetime(value: str | None) -> datetime | None:
+    """Parse an ISO datetime string, coercing a naive result to UTC.
+
+    All observed Ting API timestamps include a UTC offset, but a naive
+    result (missing offset) would blank a ``device_class=timestamp`` sensor
+    and risk a ``TypeError`` when compared against aware datetimes elsewhere.
+    """
+    if not value:
+        return None
+    parsed = dt_util.parse_datetime(value)
+    if parsed is not None and parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 @dataclass
@@ -456,8 +471,6 @@ class WhiskerApiClient:
     @staticmethod
     def _parse_notification(data: dict[str, Any]) -> TingNotification:
         """Parse one notification from the API."""
-        ts = data.get("eventTimestampLocal")
-        sent = data.get("sentUtc")
         return TingNotification(
             id=data.get("id", ""),
             event_type=data.get("eventType", "unknown"),
@@ -465,8 +478,8 @@ class WhiskerApiClient:
             title=data.get("title"),
             subtitle=data.get("subtitle"),
             message=data.get("message"),
-            timestamp=dt_util.parse_datetime(ts) if ts else None,
-            sent_utc=dt_util.parse_datetime(sent) if sent else None,
+            timestamp=_parse_aware_datetime(data.get("eventTimestampLocal")),
+            sent_utc=_parse_aware_datetime(data.get("sentUtc")),
             serial_number=data.get("serialNumber"),
             site_id=data.get("siteId"),
             is_acknowledged=data.get("isAcknowledged", False),
