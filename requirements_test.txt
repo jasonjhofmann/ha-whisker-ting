@@ -7,3 +7,7 @@ syrupy==5.0.0
 # so it's pinned here too -- importing custom_components.whisker_ting.api otherwise
 # fails at collection time via __init__ -> coordinator -> websocket -> msgpack.
 msgpack==1.2.1
+
+# Mocks aiohttp requests at the transport layer; used to fake Cognito IdP
+# responses in tests/test_auth.py without a real network call.
+aioresponses==0.7.6
