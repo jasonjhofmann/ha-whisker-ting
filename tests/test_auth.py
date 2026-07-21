@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from aioresponses import aioresponses
 import pytest
@@ -92,6 +93,30 @@ def test_srp_key_derivation_deterministic():
         "PASSWORD_CLAIM_SIGNATURE",
     }
     assert result["PASSWORD_CLAIM_SECRET_BLOCK"] == params["SECRET_BLOCK"]
+
+
+def test_srp_signature_frozen_characterization(freezer):
+    # Freeze both sources of variation (the ephemeral SRP `a` and the wall
+    # clock) so the whole computation is deterministic, then pin the real
+    # PASSWORD_CLAIM_SIGNATURE/TIMESTAMP output as golden values. This is a
+    # characterization test: it locks the current (reference-matching) SRP
+    # signature math so any future regression fails the test.
+    freezer.move_to("2026-07-21 09:05:03")
+    with patch(
+        "custom_components.whisker_ting.auth.get_random",
+        return_value=12345678901234567890,
+    ):
+        srp = CognitoSRP("ada", "pw", pool_id="us-east-1_abc", client_id="cid")
+
+    result = srp.process_challenge(
+        CHALLENGE["ChallengeParameters"], {"USERNAME": "ada"}
+    )
+
+    assert result["TIMESTAMP"] == "Tue Jul 21 09:05:03 UTC 2026"
+    assert (
+        result["PASSWORD_CLAIM_SIGNATURE"]
+        == "yfFzL3NT2UQGMTMXkOj29RrYDjdzvwWcT89ZutOTdic="
+    )
 
 
 async def test_authenticate_end_to_end(hass: HomeAssistant):
