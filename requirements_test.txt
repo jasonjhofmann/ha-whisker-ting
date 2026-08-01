@@ -11,3 +11,8 @@ msgpack==1.2.1
 # Mocks aiohttp requests at the transport layer; used to fake Cognito IdP
 # responses in tests/test_auth.py without a real network call.
 aioresponses==0.7.6
+
+# Linter/formatter — PINNED so CI matches local exactly. The workflow previously
+# installed an unpinned "ruff", which pulled a newer release that enabled a lint
+# rule the local ruff didn't, breaking CI while local passed.
+ruff==0.16.1
