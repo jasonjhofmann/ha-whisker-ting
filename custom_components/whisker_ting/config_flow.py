@@ -19,9 +19,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import WhiskerApiClient, WhiskerAuthError, WhiskerConnectionError
 from .auth import AuthenticationError
 from .const import (
+    CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_SCAN_INTERVAL,
@@ -58,14 +60,25 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             try:
                 # Test authentication and get user data
                 user_data = await client.get_user_data()
-
+            except AuthenticationError:
+                errors["base"] = "invalid_auth"
+            except WhiskerAuthError:
+                errors["base"] = "invalid_auth"
+            except WhiskerConnectionError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected exception during login")
+                errors["base"] = "unknown"
+            else:
                 # Use user_id as unique identifier
                 await self.async_set_unique_id(str(user_data.user_id))
                 self._abort_if_unique_id_configured()
 
                 # Create a nice title
                 if user_data.first_name:
-                    title = f"Whisker Ting ({user_data.first_name} {user_data.last_name})"
+                    title = (
+                        f"Whisker Ting ({user_data.first_name} {user_data.last_name})"
+                    )
                 else:
                     title = f"Whisker Ting ({username})"
 
@@ -76,16 +89,6 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                         CONF_PASSWORD: password,
                     },
                 )
-
-            except AuthenticationError:
-                errors["base"] = "invalid_auth"
-            except WhiskerAuthError:
-                errors["base"] = "invalid_auth"
-            except WhiskerConnectionError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception during login")
-                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
@@ -98,9 +101,7 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_reauth(
-        self, entry_data: dict[str, Any]
-    ) -> ConfigFlowResult:
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauth."""
         return await self.async_step_reauth_confirm()
 
@@ -118,7 +119,17 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             client = WhiskerApiClient(session, username, password)
 
             try:
-                await client.get_user_data()
+                user_data = await client.get_user_data()
+            except (AuthenticationError, WhiskerAuthError):
+                errors["base"] = "invalid_auth"
+            except WhiskerConnectionError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected exception during reauth")
+                errors["base"] = "unknown"
+            else:
+                await self.async_set_unique_id(str(user_data.user_id))
+                self._abort_if_unique_id_mismatch(reason="wrong_account")
 
                 return self.async_update_reload_and_abort(
                     self._get_reauth_entry(),
@@ -127,14 +138,6 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                         CONF_PASSWORD: password,
                     },
                 )
-
-            except (AuthenticationError, WhiskerAuthError):
-                errors["base"] = "invalid_auth"
-            except WhiskerConnectionError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception during reauth")
-                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -173,6 +176,12 @@ class WhiskerOptionsFlowHandler(OptionsFlow):
                         vol.Coerce(int),
                         vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                     ),
+                    vol.Required(
+                        CONF_ALERT_NOTIFICATIONS,
+                        default=self.config_entry.options.get(
+                            CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
+                        ),
+                    ): bool,
                 }
             ),
         )

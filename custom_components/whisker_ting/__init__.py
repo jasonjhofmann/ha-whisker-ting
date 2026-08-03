@@ -2,83 +2,72 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import timedelta
+import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import WhiskerApiClient, WhiskerAuthError, WhiskerConnectionError
+from .api import WhiskerApiClient
 from .const import (
+    CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
 )
-from .coordinator import WhiskerDataUpdateCoordinator
+from .coordinator import WhiskerConfigEntry, WhiskerDataUpdateCoordinator
 
 if TYPE_CHECKING:
-    from typing import TypeAlias
-
-    WhiskerConfigEntry: TypeAlias = ConfigEntry[WhiskerDataUpdateCoordinator]
-else:
-    WhiskerConfigEntry = ConfigEntry
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.EVENT, Platform.SENSOR]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> bool:
     """Set up Whisker Ting from a config entry."""
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+    notify_enabled = entry.options.get(
+        CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
+    )
 
     session = async_get_clientsession(hass)
     client = WhiskerApiClient(session, username, password)
 
-    # Test the connection
-    try:
-        if not await client.test_connection():
-            raise ConfigEntryNotReady("Failed to connect to Whisker Ting API")
-    except WhiskerAuthError as err:
-        raise ConfigEntryAuthFailed("Invalid authentication") from err
-    except WhiskerConnectionError as err:
-        raise ConfigEntryNotReady(f"Connection error: {err}") from err
-
-    # Create the coordinator
-    coordinator = WhiskerDataUpdateCoordinator(hass, client, session, scan_interval)
-
-    # Fetch initial data
+    coordinator = WhiskerDataUpdateCoordinator(
+        hass, client, session, scan_interval, notify_enabled
+    )
     await coordinator.async_config_entry_first_refresh()
 
-    # Store the coordinator
     entry.runtime_data = coordinator
 
-    # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Listen for options updates
     entry.async_on_unload(entry.add_update_listener(async_options_updated))
-
     return True
 
 
-async def async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_options_updated(hass: HomeAssistant, entry: WhiskerConfigEntry) -> None:
     """Handle options update."""
     coordinator: WhiskerDataUpdateCoordinator = entry.runtime_data
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     coordinator.update_interval = timedelta(seconds=scan_interval)
-    _LOGGER.debug("Updated scan interval to %s seconds", scan_interval)
+    coordinator.notify_enabled = entry.options.get(
+        CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
+    )
+    _LOGGER.debug(
+        "Updated options: scan_interval=%s notify_enabled=%s",
+        scan_interval,
+        coordinator.notify_enabled,
+    )
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> bool:
     """Unload a config entry."""
     # Shutdown the coordinator (disconnects WebSocket)
     coordinator: WhiskerDataUpdateCoordinator = entry.runtime_data

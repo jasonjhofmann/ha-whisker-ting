@@ -3,18 +3,34 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import datetime, timedelta
+import logging
+from typing import TYPE_CHECKING
 
-import aiohttp
-
+from homeassistant.components import persistent_notification
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
-from .api import DeviceState, VoltageReading, WhiskerApiClient, WhiskerApiError, WhiskerAuthError
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .api import (
+    DeviceState,
+    TingNotification,
+    VoltageReading,
+    WhiskerApiClient,
+    WhiskerApiError,
+    WhiskerAuthError,
+)
+from .const import (
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    INSIGNIFICANT_NOTIFICATION_TYPES,
+)
 from .websocket import VoltageData, WhiskerWebSocketManager
+
+if TYPE_CHECKING:
+    import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +49,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         client: WhiskerApiClient,
         session: aiohttp.ClientSession,
         update_interval_seconds: int = DEFAULT_SCAN_INTERVAL,
+        notify_enabled: bool = False,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -47,6 +64,16 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         self._ws_manager: WhiskerWebSocketManager | None = None
         self._ws_connected = False
         self._last_ws_push: datetime | None = None
+        self.notify_enabled = notify_enabled
+        self._seen_notification_ids: set[str] = set()
+        self._notifications_seeded = False
+
+    async def _async_setup(self) -> None:
+        """One-time setup: create the WebSocket manager."""
+        self._ws_manager = WhiskerWebSocketManager(
+            session=self._session,
+            on_voltage_update=self._handle_voltage_update,
+        )
 
     def voltage_is_live(self, device_id: str) -> bool:
         """Return True if a fresh real-time voltage stream exists for a device."""
@@ -55,13 +82,15 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         return self._ws_manager.is_data_fresh(device_id)
 
     @callback
-    def _handle_voltage_update(self, station_id: str, voltage_data: VoltageData) -> None:
+    def _handle_voltage_update(
+        self, station_id: str, voltage_data: VoltageData
+    ) -> None:
         """Handle real-time voltage update from WebSocket."""
         if self.data is None:
             return
 
         # Find the device with this station_id
-        for device_id, device_state in self.data.items():
+        for device_state in self.data.values():
             if device_state.station_id == station_id:
                 # Update the in-memory reading immediately...
                 device_state.voltage = VoltageReading(
@@ -72,7 +101,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 )
                 # ...but throttle how often we write HA state. The stream is
                 # ~4 Hz; pushing every frame churns every entity and the recorder.
-                now = datetime.now()
+                now = dt_util.utcnow()
                 if (
                     self._last_ws_push is None
                     or now - self._last_ws_push >= WS_PUSH_THROTTLE
@@ -83,12 +112,6 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
 
     async def _connect_websocket(self, data: dict[str, DeviceState]) -> None:
         """Connect to WebSocket for real-time updates."""
-        if self._ws_manager is None:
-            self._ws_manager = WhiskerWebSocketManager(
-                session=self._session,
-                on_voltage_update=self._handle_voltage_update,
-            )
-
         if not data or self._ws_connected:
             return
 
@@ -116,7 +139,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                             device_state.station_id,
                         )
                         self._ws_connected = True
-                except Exception as err:
+                except Exception as err:  # noqa: BLE001 - one device's failure must not abort the rest
                     _LOGGER.warning(
                         "Failed to connect WebSocket for device %s: %s",
                         device_id,
@@ -153,16 +176,20 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 if self._ws_connected and self._ws_manager:
                     # Wait for data from all devices in parallel
                     wait_tasks = [
-                        self._ws_manager.wait_for_data(device_state.station_id, timeout=5.0)
+                        self._ws_manager.wait_for_data(
+                            device_state.station_id, timeout=5.0
+                        )
                         for device_state in data.values()
                         if device_state.station_id
                     ]
                     if wait_tasks:
                         await asyncio.gather(*wait_tasks)
                     # Update data with voltage readings received
-                    for device_id, device_state in data.items():
+                    for device_state in data.values():
                         if device_state.station_id:
-                            voltage_data = self._ws_manager.get_voltage_data(device_state.station_id)
+                            voltage_data = self._ws_manager.get_voltage_data(
+                                device_state.station_id
+                            )
                             if voltage_data:
                                 device_state.voltage = VoltageReading(
                                     voltage=voltage_data.voltage,
@@ -171,7 +198,30 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                                     average_peaks_max=voltage_data.average_peaks_max,
                                 )
 
-            return data
+            # Fetch notifications (best-effort; users poll stays authoritative).
+            try:
+                notifications = await self.client.get_notifications()
+            except WhiskerApiError as err:
+                # Scope intentional: also catches WhiskerAuthError, but the users poll above already surfaces persistent auth failures via ConfigEntryAuthFailed.
+                _LOGGER.debug("Notifications fetch failed: %s", err)
+                notifications = None
+
+            if notifications is not None:
+                by_serial: dict[str, list[TingNotification]] = {}
+                for note in notifications:
+                    by_serial.setdefault(note.serial_number, []).append(note)
+                for device_state in data.values():
+                    device_state.notifications = by_serial.get(
+                        device_state.serial_number, []
+                    )
+                self._process_new_notifications(notifications)
+            elif self.data:
+                # Preserve the previous poll's notifications on a transient failure.
+                for device_id, device_state in data.items():
+                    existing = self.data.get(device_id)
+                    if existing:
+                        device_state.notifications = existing.notifications
+
         except WhiskerAuthError as err:
             self._last_update_success = False
             raise ConfigEntryAuthFailed(
@@ -184,3 +234,29 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             raise UpdateFailed(
                 f"Error communicating with Whisker Ting API: {err}"
             ) from err
+        else:
+            return data
+
+    def _process_new_notifications(self, notifications: list[TingNotification]) -> None:
+        """Seed on first poll; on later polls, post opt-in HA notifications for new significant alerts."""
+        all_ids = {n.id for n in notifications}
+        if not self._notifications_seeded:
+            self._seen_notification_ids = all_ids
+            self._notifications_seeded = True
+            return
+        new = [n for n in notifications if n.id not in self._seen_notification_ids]
+        self._seen_notification_ids |= all_ids
+        if not (self.notify_enabled and new):
+            return
+        for note in new:
+            if note.event_type in INSIGNIFICANT_NOTIFICATION_TYPES:
+                continue
+            persistent_notification.async_create(
+                self.hass,
+                message=note.message or "",
+                title=f"Ting: {note.title}" if note.title else "Ting alert",
+                notification_id=f"{DOMAIN}_{note.id}",
+            )
+
+
+type WhiskerConfigEntry = ConfigEntry[WhiskerDataUpdateCoordinator]

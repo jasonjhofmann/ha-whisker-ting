@@ -2,31 +2,42 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import (
-    CONNECTION_BLUETOOTH,
-    CONNECTION_NETWORK_MAC,
-    DeviceInfo,
-    format_mac,
-)
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import DeviceState
-from .const import DOMAIN
-from .coordinator import WhiskerDataUpdateCoordinator
+from .const import POWER_OUTAGE_EVENT_TYPES
+from .entity import WhiskerEntity
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .api import DeviceState
 
 PARALLEL_UPDATES = 0  # Coordinator handles all updates
+
+
+def _is_power_outage(state: DeviceState) -> bool:
+    """Return True while the device's most recent power event is an unrestored outage."""
+    power = [
+        n
+        for n in state.notifications
+        if n.event_type in POWER_OUTAGE_EVENT_TYPES and n.timestamp is not None
+    ]
+    if not power:
+        return False
+    latest = max(power, key=lambda n: n.timestamp)
+    return latest.event_type == "PowerOutage"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -78,6 +89,12 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[WhiskerBinarySensorEntityDescription, ...] = (
         value_fn=lambda state: state.is_power_quality_hazard,
     ),
     WhiskerBinarySensorEntityDescription(
+        key="power_outage",
+        translation_key="power_outage",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=_is_power_outage,
+    ),
+    WhiskerBinarySensorEntityDescription(
         key="connectivity",
         translation_key="connectivity",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
@@ -118,72 +135,32 @@ async def async_setup_entry(
     """Set up Whisker Ting binary sensors from a config entry."""
     coordinator = entry.runtime_data
 
-    entities: list[WhiskerBinarySensor] = []
-    for device_id, device_state in coordinator.data.items():
-        for description in BINARY_SENSOR_DESCRIPTIONS:
-            entities.append(
-                WhiskerBinarySensor(
-                    coordinator=coordinator,
-                    device_id=device_id,
-                    description=description,
-                )
-            )
+    entities: list[WhiskerBinarySensor] = [
+        WhiskerBinarySensor(
+            coordinator=coordinator, device_id=device_id, description=description
+        )
+        for device_id in coordinator.data
+        for description in BINARY_SENSOR_DESCRIPTIONS
+    ]
 
     async_add_entities(entities)
 
 
-class WhiskerBinarySensor(
-    CoordinatorEntity[WhiskerDataUpdateCoordinator], BinarySensorEntity
-):
+class WhiskerBinarySensor(WhiskerEntity, BinarySensorEntity):
     """Representation of a Whisker Ting binary sensor."""
 
     entity_description: WhiskerBinarySensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: WhiskerDataUpdateCoordinator,
+        coordinator,
         device_id: str,
         description: WhiskerBinarySensorEntityDescription,
     ) -> None:
         """Initialize the binary sensor."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, device_id)
         self.entity_description = description
-        self._device_id = device_id
         self._attr_unique_id = f"{device_id}_{description.key}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        device_state = self.coordinator.data.get(self._device_id)
-        if device_state:
-            connections = set()
-            if device_state.wifi_mac_address:
-                connections.add(
-                    (CONNECTION_NETWORK_MAC, format_mac(device_state.wifi_mac_address))
-                )
-            if device_state.bluetooth_mac_address:
-                connections.add(
-                    (CONNECTION_BLUETOOTH, format_mac(device_state.bluetooth_mac_address))
-                )
-            return DeviceInfo(
-                identifiers={(DOMAIN, self._device_id)},
-                connections=connections,
-                name=device_state.name,
-                manufacturer="Whisker Labs",
-                model="Ting Fire Sensor",
-                sw_version=device_state.version,
-            )
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=self._device_id,
-            manufacturer="Whisker Labs",
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return super().available and self._device_id in self.coordinator.data
 
     @property
     def is_on(self) -> bool | None:

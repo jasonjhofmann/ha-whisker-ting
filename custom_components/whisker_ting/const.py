@@ -36,5 +36,27 @@ DEVICE_TYPE_FIRE_SENSOR = "FireSensor"
 HAZARD_STATUS_NO_HAZARD = "No Hazards Detected"
 HAZARD_STATUS_REVIEWED_NOT_FIRE = "ReviewedNotFire"
 
-# Platforms
-PLATFORMS = ["binary_sensor", "sensor"]
+# Notifications
+API_NOTIFICATIONS_ENDPOINT = "/api/v1/Notifications/history/{user_id}"
+
+CONF_ALERT_NOTIFICATIONS = "alert_notifications"
+DEFAULT_ALERT_NOTIFICATIONS = False
+
+# Raw Ting notification eventType values the "Alerts" event entity can fire.
+# Unknown types fire as "unknown" with the raw value in attributes.
+NOTIFICATION_EVENT_TYPES = [
+    "PowerOutage",
+    "PowerOutageAndRestored",
+    "PowerRestored",
+    "Sag",
+    "Swell",
+    "WeatherAlert",
+    "FireHazard",
+    "FrozenPipe",
+    "unknown",
+]
+POWER_OUTAGE_EVENT_TYPES = {"PowerOutage", "PowerOutageAndRestored", "PowerRestored"}
+BROWNOUT_EVENT_TYPES = {"Sag", "Swell"}
+WEATHER_EVENT_TYPES = {"WeatherAlert"}
+# Notification types NOT posted as HA notifications (too noisy / covered elsewhere).
+INSIGNIFICANT_NOTIFICATION_TYPES = {"Sag", "Swell", "WeatherAlert"}
