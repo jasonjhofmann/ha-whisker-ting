@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import TYPE_CHECKING
 
@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     DeviceState,
@@ -87,6 +88,10 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             (config_entry.options.get(CONF_STATION_IDS) or {}) if config_entry else {}
         )
         self._probe_tasks: dict[str, asyncio.Task] = {}
+        # After a full candidate rotation fails, wait this long before
+        # probing again (the manager's capped backoff keeps retrying the
+        # serial in the meantime).
+        self._probe_cooldown_until: dict[str, datetime] = {}
 
     async def _async_setup(self) -> None:
         """One-time setup: create the WebSocket manager."""
@@ -187,6 +192,9 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         task = self._probe_tasks.get(serial)
         if task and not task.done():
             return  # probe already running
+        cooldown = self._probe_cooldown_until.get(serial)
+        if cooldown and dt_util.utcnow() < cooldown:
+            return  # a full rotation just failed; backoff is retrying
         self._probe_tasks[serial] = self.hass.async_create_background_task(
             self._probe_station_id(device_state),
             name=f"whisker_ting station probe {serial}",
@@ -253,6 +261,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 api_key=api_key, user_id=user_id, station_id=device_state.serial_number
             )
         device_state.station_id = device_state.serial_number
+        self._probe_cooldown_until[serial] = dt_util.utcnow() + timedelta(minutes=30)
 
     def _persist_station_id(self, serial: str, station_id: str) -> None:
         """Persist a discovered station id to config-entry options."""
@@ -330,6 +339,19 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                                 # No data on the default station id yet —
                                 # probe the alternates in the background.
                                 self._maybe_start_station_probe(device_state)
+            elif self._ws_manager:
+                # Already connected: re-arm the probe (cooldown-guarded) for
+                # any station that has never produced data — a silently
+                # unauthorized subscription, or a probe that previously
+                # failed and may succeed now that the server-side state has
+                # cleared.
+                for device_state in data.values():
+                    if (
+                        device_state.station_id
+                        and self._ws_manager.get_voltage_data(device_state.station_id)
+                        is None
+                    ):
+                        self._maybe_start_station_probe(device_state)
 
             # Fetch notifications (best-effort; users poll stays authoritative).
             try:
