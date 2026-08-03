@@ -19,6 +19,13 @@ DEFAULT_SCAN_INTERVAL = 60  # seconds
 MIN_SCAN_INTERVAL = 30  # seconds
 MAX_SCAN_INTERVAL = 3600  # seconds (1 hour)
 
+# Real-time voltage publish throttle (state-write rate limit).
+# The stream arrives at ~4 Hz; publishing every sample would write
+# ~345,000 recorder rows per voltage entity per day.
+DEFAULT_VOLTAGE_PUBLISH_INTERVAL = 5  # seconds
+MIN_VOLTAGE_PUBLISH_INTERVAL = 1  # seconds
+MAX_VOLTAGE_PUBLISH_INTERVAL = 60  # seconds
+
 # Config keys
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
@@ -28,6 +35,10 @@ CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_ID_TOKEN = "id_token"
 CONF_SCAN_INTERVAL = "scan_interval"
+CONF_VOLTAGE_PUBLISH_INTERVAL = "voltage_publish_interval"
+# Persisted map of device serial number -> discovered working station_id,
+# written by the coordinator's station-id probe (entry options).
+CONF_STATION_IDS = "station_ids"
 
 # Device types
 DEVICE_TYPE_FIRE_SENSOR = "FireSensor"

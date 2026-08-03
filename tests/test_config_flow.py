@@ -164,10 +164,26 @@ async def test_reauth_unknown(hass: HomeAssistant, mock_client, mock_config_entr
 
 async def test_options_flow(hass: HomeAssistant, mock_client, mock_config_entry):
     mock_config_entry.add_to_hass(hass)
+    # Internal (non-form) options such as the probed station-id map must
+    # survive a form save.
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={**mock_config_entry.options, "station_ids": {"TG-0001": "1234"}},
+    )
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"scan_interval": 120, "alert_notifications": True}
+        result["flow_id"],
+        {
+            "scan_interval": 120,
+            "voltage_publish_interval": 10,
+            "alert_notifications": True,
+        },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"] == {"scan_interval": 120, "alert_notifications": True}
+    assert result["data"] == {
+        "scan_interval": 120,
+        "voltage_publish_interval": 10,
+        "alert_notifications": True,
+        "station_ids": {"TG-0001": "1234"},
+    }

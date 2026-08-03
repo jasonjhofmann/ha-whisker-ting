@@ -15,8 +15,10 @@ from .const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    CONF_VOLTAGE_PUBLISH_INTERVAL,
     DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_VOLTAGE_PUBLISH_INTERVAL,
 )
 from .coordinator import WhiskerConfigEntry, WhiskerDataUpdateCoordinator
 
@@ -36,12 +38,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> b
     notify_enabled = entry.options.get(
         CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
     )
+    voltage_publish_interval = entry.options.get(
+        CONF_VOLTAGE_PUBLISH_INTERVAL, DEFAULT_VOLTAGE_PUBLISH_INTERVAL
+    )
 
     session = async_get_clientsession(hass)
     client = WhiskerApiClient(session, username, password)
 
     coordinator = WhiskerDataUpdateCoordinator(
-        hass, client, session, scan_interval, notify_enabled
+        hass,
+        client,
+        session,
+        scan_interval,
+        notify_enabled,
+        voltage_publish_interval,
+        config_entry=entry,
     )
     await coordinator.async_config_entry_first_refresh()
 
@@ -60,10 +71,17 @@ async def async_options_updated(hass: HomeAssistant, entry: WhiskerConfigEntry) 
     coordinator.notify_enabled = entry.options.get(
         CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
     )
+    coordinator.set_voltage_publish_interval(
+        entry.options.get(
+            CONF_VOLTAGE_PUBLISH_INTERVAL, DEFAULT_VOLTAGE_PUBLISH_INTERVAL
+        )
+    )
     _LOGGER.debug(
-        "Updated options: scan_interval=%s notify_enabled=%s",
+        "Updated options: scan_interval=%s notify_enabled=%s "
+        "voltage_publish_interval=%s",
         scan_interval,
         coordinator.notify_enabled,
+        coordinator.voltage_publish_interval,
     )
 
 

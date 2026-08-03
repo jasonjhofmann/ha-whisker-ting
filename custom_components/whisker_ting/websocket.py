@@ -1,20 +1,28 @@
-"""WebSocket client for real-time Whisker Ting data."""
+"""WebSocket client for real-time Whisker Ting data.
+
+Transport lifecycle lives here; all wire encoding/decoding lives in
+``protocol.py``. The connection sends spec-framed SignalR messages — the
+unframed ``{1: [...]}`` map encoding the original integration used caused
+the server to drop every connection (~70 ms after the first keepalive
+ping), producing a permanent reconnect churn loop. See protocol.py for
+the full history and credits.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
+import json
 import logging
-import struct
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import aiohttp
-import msgpack
 
 from homeassistant.util import dt as dt_util
 
+from . import protocol
 from .const import SIGNALR_URL
+from .protocol import SignalRProtocolError, VoltageData
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,32 +30,24 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# SignalR MessagePack message types
-MSG_TYPE_INVOCATION = 1
-MSG_TYPE_STREAM_ITEM = 2
-MSG_TYPE_COMPLETION = 3
-MSG_TYPE_STREAM_INVOCATION = 4
-MSG_TYPE_CANCEL_INVOCATION = 5
-MSG_TYPE_PING = 6
-MSG_TYPE_CLOSE = 7
+# Re-exported for backward compatibility; VoltageData now lives in protocol.py.
+__all__ = ["VoltageData", "WhiskerWebSocket", "WhiskerWebSocketManager"]
 
-
-@dataclass
-class VoltageData:
-    """Real-time voltage data from WebSocket."""
-
-    timestamp: datetime
-    voltage: float
-    voltage_hi: float
-    voltage_lo: float
-    average_peaks_max: float
+# How often the manager publishes the latest sample to Home Assistant by
+# default. The stream arrives at ~4 Hz; publishing every sample would write
+# ~345,000 recorder rows per voltage entity per day.
+DEFAULT_PUBLISH_INTERVAL = 5.0
 
 
 class WhiskerWebSocket:
-    """WebSocket client for Whisker Ting SignalR hub."""
+    """WebSocket client for one station on the Whisker Ting SignalR hub."""
 
-    # Consider data stale if no update in 30 seconds (normally updates every ~250ms)
+    # Consider data stale if no update in 30 seconds (normally ~4 Hz)
     STALE_DATA_THRESHOLD = 30
+    # A connection that has never produced data gets this long before the
+    # stale loop recycles it. Covers "accepted but silently unauthorized"
+    # subscriptions, which the server has been observed to clear over time.
+    FIRST_DATA_GRACE = 60
 
     def __init__(
         self,
@@ -67,7 +67,6 @@ class WhiskerWebSocket:
         self._on_disconnect = on_disconnect
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._connected = False
-        self._reconnect_task: asyncio.Task | None = None
         self._ping_task: asyncio.Task | None = None
         self._receive_task: asyncio.Task | None = None
         self._stale_check_task: asyncio.Task | None = None
@@ -75,6 +74,7 @@ class WhiskerWebSocket:
         self._first_data_received = asyncio.Event()
         self._stream_rejected = asyncio.Event()
         self._last_data_time: datetime | None = None
+        self._connect_time: datetime | None = None
         self._shutting_down = False
 
     @property
@@ -82,163 +82,18 @@ class WhiskerWebSocket:
         """Return True if connected."""
         return self._connected
 
+    @property
+    def stream_rejected(self) -> bool:
+        """Return True if the server rejected the streaming subscription."""
+        return self._stream_rejected.is_set()
+
     def _encode_invocation(self, method: str, args: list) -> bytes:
-        """Encode a SignalR invocation message."""
+        """Encode a spec-framed SignalR invocation message."""
         self._message_id += 1
-        # SignalR MessagePack invocation format:
-        # {1: [type, headers, invocationId, target, arguments]}
-        # Type 1 = INVOCATION (not streaming)
-        message = {
-            1: [
-                MSG_TYPE_INVOCATION,
-                {},  # headers
-                str(self._message_id),  # invocationId
-                method,
-                args,
-            ]
-        }
-        return msgpack.packb(message, use_bin_type=True)
-
-    def _encode_ping(self) -> bytes:
-        """Encode a SignalR ping message."""
-        # Ping is just {1: [6]}
-        return msgpack.packb({1: [MSG_TYPE_PING]}, use_bin_type=True)
-
-    @staticmethod
-    def _iter_signalr_messages(data: bytes):
-        """Yield individual MessagePack message bodies from a SignalR frame.
-
-        SignalR MessagePack messages are prefixed with a LEB128 varint length,
-        and a single WebSocket frame may carry several concatenated messages.
-        """
-        pos = 0
-        n = len(data)
-        while pos < n:
-            length = 0
-            shift = 0
-            consumed_varint = False
-            while pos < n:
-                byte = data[pos]
-                pos += 1
-                length |= (byte & 0x7F) << shift
-                if not byte & 0x80:
-                    consumed_varint = True
-                    break
-                shift += 7
-            if not consumed_varint or length <= 0 or pos + length > n:
-                return  # Not valid framing; caller falls back to a raw scan.
-            yield data[pos : pos + length]
-            pos += length
-
-    def _scan_doubles(self, data: bytes) -> list[float]:
-        """Extract float64 values (msgpack 0xCB markers) from raw bytes.
-
-        Legacy fallback used only when the structured decode can't parse the
-        frame, so a server-side framing change can't silently kill readings.
-        """
-        doubles: list[float] = []
-        pos = 0
-        while pos <= len(data) - 9:
-            if data[pos] == 0xCB:  # float64 marker
-                doubles.append(struct.unpack(">d", data[pos + 1 : pos + 9])[0])
-                pos += 9
-            else:
-                pos += 1
-        return doubles
-
-    def _collect_doubles(self, obj: Any) -> list[float]:
-        """Recursively collect float values from a decoded msgpack structure."""
-        out: list[float] = []
-        if isinstance(obj, float):
-            out.append(obj)
-        elif isinstance(obj, (bytes, bytearray)):
-            out.extend(self._scan_doubles(bytes(obj)))
-        elif isinstance(obj, (list, tuple)):
-            for item in obj:
-                out.extend(self._collect_doubles(item))
-        elif isinstance(obj, dict):
-            for item in obj.values():
-                out.extend(self._collect_doubles(item))
-        return out
-
-    def _doubles_from_message(self, obj: Any) -> list[float]:
-        """Pull voltage doubles out of one decoded SignalR message."""
-        # This client wraps invocations as {1: [...]}; unwrap a single-key map.
-        if isinstance(obj, dict) and len(obj) == 1:
-            obj = next(iter(obj.values()))
-        # Prefer the arguments of an updateComboBinaryData invocation.
-        if (
-            isinstance(obj, (list, tuple))
-            and len(obj) >= 5
-            and obj[0] == MSG_TYPE_INVOCATION
-        ):
-            if obj[3] != "updateComboBinaryData":
-                return []
-            return self._collect_doubles(obj[4])
-        return self._collect_doubles(obj)
-
-    def _decode_voltage_data(self, data: bytes) -> VoltageData | None:
-        """Decode voltage data from a SignalR MessagePack frame.
-
-        Unpacks the MessagePack envelope and reads the voltage doubles from the
-        decoded structure (robust to header/method/timestamp bytes that the old
-        raw scan could mistake for float64 markers). Falls back to a raw byte
-        scan if the frame can't be unpacked.
-        """
-        doubles: list[float] = []
-        candidates = []
-
-        # The frame may be a single bare object (this client's framing) or one
-        # or more length-prefixed SignalR messages; try both.
-        with contextlib.suppress(Exception):
-            candidates.append(msgpack.unpackb(data, raw=False, strict_map_key=False))
-        with contextlib.suppress(Exception):
-            candidates.extend(
-                msgpack.unpackb(body, raw=False, strict_map_key=False)
-                for body in self._iter_signalr_messages(data)
-            )
-
-        for obj in candidates:
-            doubles = self._doubles_from_message(obj)
-            if len(doubles) >= 4:
-                break
-
-        if len(doubles) < 4:
-            # Last resort: scan the raw frame (legacy behavior).
-            doubles = self._scan_doubles(data)
-
-        if len(doubles) < 4:
-            _LOGGER.debug("Could not extract voltage doubles from frame")
-            return None
-
-        voltage, peaks, voltage_hi, voltage_lo = doubles[:4]
-
-        # Filter out obviously bad readings (zero/near-zero or clearly garbage).
-        if abs(voltage) < 1 or abs(voltage) > 1000:
-            _LOGGER.debug("Discarding anomalous voltage reading: %.2fV", voltage)
-            return None
-
-        return VoltageData(
-            timestamp=dt_util.utcnow(),
-            voltage=voltage,
-            average_peaks_max=peaks,
-            voltage_hi=voltage_hi,
-            voltage_lo=voltage_lo,
-        )
-
-    def _frame_is_completion(self, data: bytes) -> bool:
-        """Return True if the frame is a SignalR Completion (message type 3)."""
-        for body in self._iter_signalr_messages(data):
-            try:
-                obj = msgpack.unpackb(body, raw=False, strict_map_key=False)
-            except Exception:  # noqa: BLE001 - probing
-                continue
-            if isinstance(obj, (list, tuple)) and obj and obj[0] == MSG_TYPE_COMPLETION:
-                return True
-        return False
+        return protocol.encode_invocation(str(self._message_id), method, args)
 
     async def connect(self) -> bool:
-        """Connect to the SignalR hub."""
+        """Connect to the SignalR hub and start the streaming subscription."""
         try:
             _LOGGER.debug("Connecting to SignalR hub: %s", SIGNALR_URL)
 
@@ -246,9 +101,8 @@ class WhiskerWebSocket:
                 SIGNALR_URL,
                 headers={
                     "Origin": "ionic://localhost",
-                    # The hub authorizes at the HTTP-upgrade level via this
-                    # header, not via InitializeStreaming args. Without it the
-                    # server completes result:null and never streams.
+                    # The hub also authorizes at the HTTP-upgrade level via
+                    # this header (matches the official app's traffic).
                     "x-wl-api-key": self._api_key,
                 },
             )
@@ -257,23 +111,38 @@ class WhiskerWebSocket:
             handshake = '{"protocol":"messagepack","version":1}\x1e'
             await self._ws.send_str(handshake)
 
-            # Wait for handshake response
+            # Validate the handshake response
             msg = await self._ws.receive(timeout=10)
-            if msg.type == aiohttp.WSMsgType.BINARY:
-                _LOGGER.debug("Received handshake response (binary)")
-            elif msg.type == aiohttp.WSMsgType.TEXT:
-                _LOGGER.debug("Received handshake response: %s", msg.data)
+            if msg.type not in (aiohttp.WSMsgType.BINARY, aiohttp.WSMsgType.TEXT):
+                raise SignalRProtocolError(  # noqa: TRY301 - connect() is the sole handler
+                    f"unexpected handshake response type: {msg.type.name}"
+                )
+            handshake_data = (
+                msg.data.decode("utf-8") if isinstance(msg.data, bytes) else msg.data
+            )
+            if not handshake_data.endswith("\x1e"):
+                raise SignalRProtocolError(  # noqa: TRY301 - connect() is the sole handler
+                    "unterminated SignalR handshake response"
+                )
+            handshake_result = json.loads(handshake_data[:-1])
+            if handshake_result.get("error"):
+                raise SignalRProtocolError(  # noqa: TRY301 - connect() is the sole handler
+                    f"SignalR handshake failed: {handshake_result['error']}"
+                )
 
-            # Subscribe to device stream using api_key as the token
+            # Subscribe to the device stream using api_key as the token
             init_args = [
                 {"StationId": self._station_id, "DataElement": "ComboBinaryData"},
-                self._api_key,  # Use api_key directly as the stream token
+                self._api_key,
                 str(self._user_id),
             ]
             init_msg = self._encode_invocation("InitializeStreaming", init_args)
             await self._ws.send_bytes(init_msg)
 
             self._connected = True
+            self._connect_time = dt_util.utcnow()
+            # _last_data_time intentionally stays None until real data
+            # arrives, so freshness never reflects a silent subscription.
 
             # Start background tasks
             self._receive_task = asyncio.create_task(self._receive_loop())
@@ -330,39 +199,71 @@ class WhiskerWebSocket:
                     task.cancel()
         return self._first_data_received.is_set()
 
+    def _handle_hub_message(self, message: list) -> None:
+        """Dispatch one decoded SignalR hub message."""
+        voltage_data = protocol.decode_voltage_update(message)
+        if voltage_data is not None:
+            if self._on_voltage_update:
+                self._last_data_time = dt_util.utcnow()
+                self._on_voltage_update(self._station_id, voltage_data)
+                if not self._first_data_received.is_set():
+                    self._first_data_received.set()
+            return
+
+        if protocol.completion_message(message):
+            # The server only sends a Completion for InitializeStreaming
+            # when the subscription is NOT accepted (error or result:null);
+            # an accepted stream never gets one. This state has been
+            # observed to clear server-side over time, so the manager keeps
+            # retrying with capped backoff rather than giving up.
+            error = protocol.completion_error(message)
+            _LOGGER.warning(
+                "Streaming subscription rejected for station %s%s",
+                self._station_id,
+                f": {error}" if error else " (silent result:null)",
+            )
+            self._stream_rejected.set()
+            return
+
+        if error := protocol.close_error(message):
+            _LOGGER.warning(
+                "Server closed stream for station %s: %s", self._station_id, error
+            )
+            return
+
+        if message[0] == protocol.MSG_TYPE_PING:
+            _LOGGER.debug("Received keepalive ping from server")
+            return
+
+        _LOGGER.debug("Unhandled hub message type %s", message[0])
+
     async def _receive_loop(self) -> None:
         """Receive messages from the WebSocket."""
         while self._connected and self._ws and not self._ws.closed:
             try:
-                msg = await asyncio.wait_for(
-                    self._ws.receive(),
-                    timeout=30,
-                )
+                msg = await asyncio.wait_for(self._ws.receive(), timeout=30)
 
                 if msg.type == aiohttp.WSMsgType.BINARY:
-                    # Check if it's a voltage update
-                    if b"updateComboBinaryData" in msg.data:
-                        voltage_data = self._decode_voltage_data(msg.data)
-                        if voltage_data and self._on_voltage_update:
-                            self._last_data_time = dt_util.utcnow()
-                            self._on_voltage_update(self._station_id, voltage_data)
-                            # Signal that we've received data
-                            if not self._first_data_received.is_set():
-                                self._first_data_received.set()
-                    elif self._frame_is_completion(msg.data):
+                    try:
+                        messages = protocol.decode_hub_messages(msg.data)
+                    except SignalRProtocolError as err:
                         _LOGGER.debug(
-                            "Stream rejected (Completion) for station %s",
+                            "Undecodable frame from station %s (%s): %s",
                             self._station_id,
+                            err,
+                            msg.data[:32].hex(),
                         )
-                        self._stream_rejected.set()
-                    elif msg.data == b"\x02\x91\x06":  # Ping response
-                        _LOGGER.debug("Received ping response")
+                        continue
+                    for message in messages:
+                        self._handle_hub_message(message)
 
                 elif msg.type == aiohttp.WSMsgType.TEXT:
                     _LOGGER.debug("Received text message: %s", msg.data)
 
                 elif msg.type in (
                     aiohttp.WSMsgType.CLOSED,
+                    aiohttp.WSMsgType.CLOSING,
+                    aiohttp.WSMsgType.CLOSE,
                     aiohttp.WSMsgType.ERROR,
                 ):
                     _LOGGER.warning("WebSocket closed or error: %s", msg.type)
@@ -388,29 +289,46 @@ class WhiskerWebSocket:
             self._on_disconnect(self._station_id)
 
     async def _stale_data_check_loop(self) -> None:
-        """Check for stale data and trigger reconnect if needed."""
+        """Recycle the connection when the stream goes stale or stays silent."""
         while self._connected and not self._shutting_down:
             try:
                 await asyncio.sleep(self.STALE_DATA_THRESHOLD)
 
-                if self._last_data_time is None:
-                    continue
-
                 if not self._connected or self._shutting_down:
                     break
 
-                # _last_data_time is guaranteed set here (see the None check above).
-                time_since_update = (
-                    dt_util.utcnow() - self._last_data_time
-                ).total_seconds()
+                now = dt_util.utcnow()
+                if self._last_data_time is None:
+                    # Never received data on this connection. Give it a
+                    # grace period, then recycle — the subscription may be
+                    # silently unauthorized, and that server-side state has
+                    # been observed to clear on later attempts.
+                    if (
+                        self._connect_time is not None
+                        and (now - self._connect_time).total_seconds()
+                        > self.FIRST_DATA_GRACE
+                    ):
+                        _LOGGER.warning(
+                            "No voltage data for station %s within %ds of "
+                            "connecting, recycling connection",
+                            self._station_id,
+                            self.FIRST_DATA_GRACE,
+                        )
+                        self._connected = False
+                        if self._on_disconnect:
+                            self._on_disconnect(self._station_id)
+                        break
+                    continue
+
+                time_since_update = (now - self._last_data_time).total_seconds()
                 if time_since_update > self.STALE_DATA_THRESHOLD:
                     _LOGGER.error(
-                        "WebSocket data stale for station %s (no update in %.0f seconds), reconnecting",
+                        "WebSocket data stale for station %s (no update in "
+                        "%.0f seconds), reconnecting",
                         self._station_id,
                         time_since_update,
                     )
                     self._connected = False
-                    # Trigger reconnect via callback
                     if self._on_disconnect:
                         self._on_disconnect(self._station_id)
                     break
@@ -423,13 +341,12 @@ class WhiskerWebSocket:
                 break
 
     async def _ping_loop(self) -> None:
-        """Send periodic pings to keep the connection alive."""
+        """Send periodic spec-framed pings to keep the connection alive."""
         while self._connected and self._ws and not self._ws.closed:
             try:
                 await asyncio.sleep(15)  # Ping every 15 seconds
                 if self._connected and self._ws and not self._ws.closed:
-                    ping_msg = self._encode_ping()
-                    await self._ws.send_bytes(ping_msg)
+                    await self._ws.send_bytes(protocol.encode_ping())
                     _LOGGER.debug("Sent ping")
             except asyncio.CancelledError:
                 break
@@ -446,19 +363,21 @@ class WhiskerWebSocketManager:
     RECONNECT_MIN_DELAY = 5
     RECONNECT_MAX_DELAY = 300  # 5 minutes max
     RECONNECT_BACKOFF_FACTOR = 2
-    RECONNECT_MAX_ATTEMPTS = 12
 
     def __init__(
         self,
         session: aiohttp.ClientSession,
         on_voltage_update: Callable[[str, VoltageData], None] | None = None,
+        publish_interval: float = DEFAULT_PUBLISH_INTERVAL,
     ) -> None:
         """Initialize the manager."""
         self._session = session
         self._on_voltage_update = on_voltage_update
+        self.publish_interval = publish_interval
         self._connections: dict[str, WhiskerWebSocket] = {}
         self._voltage_data: dict[str, VoltageData] = {}
         self._last_update_time: dict[str, datetime] = {}  # For staleness checks
+        self._last_publish_time: dict[str, datetime] = {}  # For write throttling
         self._credentials: dict[str, dict] = {}  # Store credentials for reconnect
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
         self._reconnect_attempts: dict[str, int] = {}
@@ -478,11 +397,27 @@ class WhiskerWebSocketManager:
         return (dt_util.utcnow() - last).total_seconds() <= max_age
 
     def _handle_voltage_update(self, station_id: str, data: VoltageData) -> None:
-        """Handle voltage update from WebSocket."""
+        """Handle a voltage update from a WebSocket connection.
+
+        Every sample updates the in-memory reading and freshness clock;
+        the coordinator callback is throttled to ``publish_interval`` so a
+        ~4 Hz stream doesn't fan a state write to every entity per sample.
+        The first sample after (re)connect always publishes immediately.
+        """
         self._voltage_data[station_id] = data
-        self._last_update_time[station_id] = dt_util.utcnow()
-        # Reset reconnect attempts on successful data
+        now = dt_util.utcnow()
+        self._last_update_time[station_id] = now
+        # Reset reconnect attempts on successful data (not on mere connect —
+        # a connect that never yields data must keep escalating its backoff)
         self._reconnect_attempts[station_id] = 0
+
+        last_publish = self._last_publish_time.get(station_id)
+        if (
+            last_publish is not None
+            and (now - last_publish).total_seconds() < self.publish_interval
+        ):
+            return
+        self._last_publish_time[station_id] = now
         _LOGGER.debug(
             "Voltage update for %s: %.2fV (hi: %.2fV, lo: %.2fV)",
             station_id,
@@ -501,6 +436,8 @@ class WhiskerWebSocketManager:
         # Remove old connection
         if station_id in self._connections:
             del self._connections[station_id]
+        # Force the next sample after reconnect to publish immediately
+        self._last_publish_time.pop(station_id, None)
 
         # Schedule reconnection
         if (
@@ -512,7 +449,12 @@ class WhiskerWebSocketManager:
             )
 
     async def _reconnect_with_backoff(self, station_id: str) -> None:
-        """Reconnect to a station with exponential backoff."""
+        """Reconnect to a station with capped exponential backoff.
+
+        Never gives up: the server-side streaming-authorization state has
+        been observed to clear after hours, so retries continue at
+        RECONNECT_MAX_DELAY intervals indefinitely.
+        """
         if station_id not in self._credentials:
             _LOGGER.error(
                 "No credentials stored for station %s, cannot reconnect", station_id
@@ -521,14 +463,6 @@ class WhiskerWebSocketManager:
 
         creds = self._credentials[station_id]
         attempts = self._reconnect_attempts.get(station_id, 0)
-
-        if attempts >= self.RECONNECT_MAX_ATTEMPTS:
-            _LOGGER.error(
-                "Max reconnect attempts (%d) reached for station %s, giving up",
-                self.RECONNECT_MAX_ATTEMPTS,
-                station_id,
-            )
-            return
 
         # Calculate delay with exponential backoff
         delay = min(

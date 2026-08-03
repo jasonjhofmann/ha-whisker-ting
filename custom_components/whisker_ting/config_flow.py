@@ -23,11 +23,15 @@ from .const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    CONF_VOLTAGE_PUBLISH_INTERVAL,
     DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_VOLTAGE_PUBLISH_INTERVAL,
     DOMAIN,
     MAX_SCAN_INTERVAL,
+    MAX_VOLTAGE_PUBLISH_INTERVAL,
     MIN_SCAN_INTERVAL,
+    MIN_VOLTAGE_PUBLISH_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -159,7 +163,11 @@ class WhiskerOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage general settings."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Merge over existing options: internal keys (e.g. the probed
+            # station-id map) must survive a form save.
+            return self.async_create_entry(
+                title="", data={**self.config_entry.options, **user_input}
+            )
 
         current_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
@@ -175,6 +183,19 @@ class WhiskerOptionsFlowHandler(OptionsFlow):
                     ): vol.All(
                         vol.Coerce(int),
                         vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                    ),
+                    vol.Required(
+                        CONF_VOLTAGE_PUBLISH_INTERVAL,
+                        default=self.config_entry.options.get(
+                            CONF_VOLTAGE_PUBLISH_INTERVAL,
+                            DEFAULT_VOLTAGE_PUBLISH_INTERVAL,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_VOLTAGE_PUBLISH_INTERVAL,
+                            max=MAX_VOLTAGE_PUBLISH_INTERVAL,
+                        ),
                     ),
                     vol.Required(
                         CONF_ALERT_NOTIFICATIONS,
