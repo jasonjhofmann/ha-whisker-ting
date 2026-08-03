@@ -1,9 +1,9 @@
 # Whisker Ting Integration for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/billda/ha-ting-fire.svg)](https://github.com/billda/ha-ting-fire/releases)
+[![GitHub Release](https://img.shields.io/github/release/jasonjhofmann/ha-whisker-ting.svg)](https://github.com/jasonjhofmann/ha-whisker-ting/releases)
 
-Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/) electrical-fire-safety sensor. Ting plugs into an outlet and continuously monitors your home's electrical system for the arcing and power-quality problems that precede electrical fires. This integration connects to the Ting cloud service on your behalf and exposes real-time voltage readings plus electrical, utility, and power-quality hazard status as native Home Assistant entities.
+Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/) electrical-fire-safety sensor. This repository consolidates the fixes and features from every fork lineage of the original integration into one maintained codebase — the spec-compliant SignalR transport that ends the connection churn, the named-field voltage decode that ends the spurious spike misreads, alert/notification entities, multi-device support, and a full test suite. Ting plugs into an outlet and continuously monitors your home's electrical system for the arcing and power-quality problems that precede electrical fires. This integration connects to the Ting cloud service on your behalf and exposes real-time voltage readings plus electrical, utility, and power-quality hazard status as native Home Assistant entities.
 
 ## Features
 
@@ -25,13 +25,13 @@ Whisker Ting is not (yet) in the default HACS store, so add it as a custom repos
 
 1. Open **HACS** in Home Assistant.
 2. Click the three-dot menu in the top right corner and select **Custom repositories**.
-3. Add `https://github.com/billda/ha-ting-fire` as the repository URL, choose **Integration** as the category, and click **Add**.
+3. Add `https://github.com/jasonjhofmann/ha-whisker-ting` as the repository URL, choose **Integration** as the category, and click **Add**.
 4. Find **Whisker Ting** in HACS and click **Download**.
 5. Restart Home Assistant.
 
 ### Manual
 
-1. Download the latest release from [GitHub](https://github.com/billda/ha-ting-fire/releases), or clone the repository.
+1. Download the latest release from [GitHub](https://github.com/jasonjhofmann/ha-whisker-ting/releases), or clone the repository.
 2. Copy the `custom_components/whisker_ting` folder into your Home Assistant `config/custom_components/` directory.
 3. Restart Home Assistant.
 
@@ -55,6 +55,7 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 | Option | Description |
 |---|---|
 | **Update interval** | How often, in seconds, the integration polls the Ting API for hazard and diagnostic data. Range 30–3600, default 60. Real-time voltage sensors are unaffected by this setting — they update continuously from the WebSocket stream. |
+| **Real-time voltage publish interval** | How often, in seconds, the live voltage stream (~4 samples/second) writes to Home Assistant state. Range 1–60, default 5. Lower values give finer voltage history at the cost of recorder growth (1 s ≈ 86,000 recorder rows per voltage entity per day; 5 s ≈ 17,000). In-memory readings and freshness tracking always run at full stream rate regardless of this setting. |
 | **Alert notifications** | Post a Home Assistant persistent notification for each new *significant* Ting alert — power outages, restorations, fire, and frozen-pipe alerts. Off by default (opt-in). Brownouts (`Sag`/`Swell`) and weather alerts are never posted this way by design; automate on the `Alerts` event entity or the `Last brownout` / `Last weather alert` sensors instead — see [Automations](#automations) below. |
 
 ## Removal
@@ -206,6 +207,14 @@ This is normal — the integration waits for the WebSocket connection to receive
 
 The real-time voltage sensors depend on a live WebSocket stream. If the stream disconnects and cannot be re-established, these sensors report unavailable (rather than a frozen last value) until the stream recovers. The hazard and diagnostic sensors continue to update from the regular API poll regardless of stream state.
 
+### Voltage stays "Unknown" after install or upgrade
+
+Ting's server sometimes rejects the streaming subscription for an account with a silent `result: null` — a server-side authorization state that has been observed to clear on its own after some hours and a few connection attempts. The integration handles this automatically: it probes alternate station identifiers (device serial, site id, SoC serial, group id) in the background, remembers the first one that works, and otherwise keeps retrying with capped backoff (up to every 5 minutes) indefinitely. If voltage sensors are still `Unknown` a day after setup while the app shows live Power Quality data, please open an issue with debug logs.
+
+### Upgrading from a pre-3.0 fork: log spam / reconnect loops
+
+Versions before 3.0.0 (including the other forks this repository consolidates, except those noted in the changelog) sent malformed SignalR frames that made the server drop the connection every few seconds — visible as endless `WebSocket disconnected ... triggering reconnect` / `data stale` log lines, even while voltage values appeared to update. 3.0.0's spec-compliant framing fixes the root cause; after upgrading, a single `Connected to SignalR hub` line and silence is the healthy state.
+
 ### Authentication errors
 
 Ensure you're using the same email and password you use in the Whisker Labs / Ting mobile app. If your password has changed, Home Assistant will prompt you to reauthenticate the integration; repeated errors after reauthenticating usually mean the credentials themselves are incorrect.
@@ -214,8 +223,14 @@ Ensure you're using the same email and password you use in the Whisker Labs / Ti
 
 This integration is not affiliated with or endorsed by Whisker Labs, Inc.
 
-- Original integration by **Aiden Mitchell**.
-- Fixes adopted from forks by **simplytoast1** and **adamjthompson**, including the SignalR stream authorization header that restores real-time voltage data.
+This codebase consolidates the work of the entire fork family:
+
+- **Aiden Mitchell / simplytoast1** — the original integration ([simplytoast1/ha-whisker-ting](https://github.com/simplytoast1/ha-whisker-ting)).
+- **Stu Chuang Matthews (fourmajor)** — spec-compliant SignalR VarInt framing, six-field invocation encoding, framed keepalive pings, and named-field voltage decoding ([fourmajor/ha-whisker-ting](https://github.com/fourmajor/ha-whisker-ting)).
+- **Adam Thompson (adamjthompson)** — the `x-wl-api-key` upgrade-header authorization (from a capture of the official app's traffic), nested binary-blob payload decoding, Completion-as-rejection semantics, and station-id candidate probing ([adamjthompson/whisker_ting](https://github.com/adamjthompson/whisker_ting)).
+- **Bill (billda)** — the alert feed (event entity, typed timestamp sensors, power-outage binary sensor), opt-in notifications and blueprint, multi-device site naming, redacted diagnostics, reauth flow, and the pytest test harness ([billda/ha-ting-fire](https://github.com/billda/ha-ting-fire)).
+- **calasanzio, mbedworth, marccatalano, tcsmedes** — the field debugging in [simplytoast1/ha-whisker-ting#1](https://github.com/simplytoast1/ha-whisker-ting/issues/1) that pinned the framing root cause (the millisecond-precise ping-kill capture, the credential-swap analysis, and the server-response writeups).
+- **Jason Hofmann (jasonjhofmann)** — WebSocket decode/availability hardening, update throttling, Cognito token-expiry handling, MAC-address device connections, surfaced power-quality/connectivity/subscription fields, and this consolidation.
 
 ## License
 

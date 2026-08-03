@@ -1,13 +1,17 @@
 {
   "domain": "whisker_ting",
   "name": "Whisker Ting",
-  "codeowners": ["@billda"],
+  "codeowners": [
+    "@jasonjhofmann"
+  ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/billda/ha-ting-fire",
+  "documentation": "https://github.com/jasonjhofmann/ha-whisker-ting",
   "integration_type": "hub",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/billda/ha-ting-fire/issues",
-  "requirements": ["msgpack==1.2.1"],
-  "version": "2.1.0"
+  "issue_tracker": "https://github.com/jasonjhofmann/ha-whisker-ting/issues",
+  "requirements": [
+    "msgpack>=1.0.0"
+  ],
+  "version": "3.0.0"
 }
