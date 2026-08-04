@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
+from custom_components.whisker_ting.api import _reverse_mac
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -46,3 +47,10 @@ async def test_entities(
             continue
         assert (state := hass.states.get(entry.entity_id))
         assert state == snapshot(name=f"{entry.entity_id}-state")
+
+
+async def test_mac_addresses_normalized_to_physical_order(hass, mock_config_entry):
+    """Both Wi-Fi AND Bluetooth MACs arrive byte-reversed from the API."""
+    assert _reverse_mac("b7:2a:19:10:6a:80") == "80:6a:10:19:2a:b7"
+    # Regression: bluetoothMacAddress was passed through unreversed.
+    assert _reverse_mac("aa:bb:cc:dd:ee:ff") == "ff:ee:dd:cc:bb:aa"

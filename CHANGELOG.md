@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.1
+
+### Fixed
+
+- `bluetoothMacAddress` is byte-reversed by the Ting API exactly like the
+  Wi-Fi MAC, but was passed through unnormalized — the device registry's
+  Bluetooth connection showed the reversed form. Now normalized at the
+  parse boundary like the Wi-Fi MAC. (Registry rows registered by earlier
+  versions — the reversed Bluetooth MAC and the pre-1.2.0 reversed Wi-Fi
+  MAC — persist until manually cleaned; new installs are correct.)
+
 ## 3.0.0 — The consolidation release
 
 This release merges the fixes and features of every fork lineage of the

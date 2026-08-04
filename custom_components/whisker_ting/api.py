@@ -21,9 +21,10 @@ _LOGGER = logging.getLogger(__name__)
 def _reverse_mac(mac: str | None) -> str | None:
     """Reverse the octet order of a MAC reported by the Ting API.
 
-    The API serializes the Wi-Fi MAC in reversed (little-endian) byte order,
-    so a device whose physical address is ``80:6a:10:19:2a:b7`` is reported as
-    ``b7:2a:19:10:6a:80``. Normalize to physical order and return a lowercase,
+    The API serializes both the Wi-Fi and Bluetooth MACs in reversed
+    (little-endian) byte order, so a device whose physical address is
+    ``80:6a:10:19:2a:b7`` is reported as ``b7:2a:19:10:6a:80``. Normalize
+    to physical order and return a lowercase,
     colon-delimited string. The input is returned unchanged when it is missing
     or not a parseable 6-octet MAC.
     """
@@ -436,7 +437,7 @@ class WhiskerApiClient:
             site_id=site_id,
             version=data.get("version"),
             wifi_mac_address=_reverse_mac(data.get("wifiMacAddress")),
-            bluetooth_mac_address=data.get("bluetoothMacAddress"),
+            bluetooth_mac_address=_reverse_mac(data.get("bluetoothMacAddress")),
             soc_serial_number=data.get("socSerialNumber"),
             station_id=station_id,
             subscription_start_date=data.get("subscriptionStartDate"),
