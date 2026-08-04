@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.2
+
+### Fixed
+
+- One-time registry migration: byte-reversed MAC connection rows
+  registered by older builds (reversed Wi-Fi before 1.2.0, reversed
+  Bluetooth before 3.0.1) are now removed on setup. Only the reversed
+  forms of the currently known MACs are touched; connections shared with
+  other integrations are preserved.
+
 ## 3.0.1
 
 ### Fixed

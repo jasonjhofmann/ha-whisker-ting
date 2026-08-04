@@ -7,9 +7,15 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import (
+    CONNECTION_BLUETOOTH,
+    CONNECTION_NETWORK_MAC,
+    format_mac,
+)
 
-from .api import WhiskerApiClient
+from .api import WhiskerApiClient, _reverse_mac
 from .const import (
     CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
@@ -19,6 +25,7 @@ from .const import (
     DEFAULT_ALERT_NOTIFICATIONS,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_VOLTAGE_PUBLISH_INTERVAL,
+    DOMAIN,
 )
 from .coordinator import WhiskerConfigEntry, WhiskerDataUpdateCoordinator
 
@@ -58,9 +65,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> b
 
     entry.runtime_data = coordinator
 
+    _async_cleanup_stale_mac_connections(hass, coordinator)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_options_updated))
     return True
+
+
+def _async_cleanup_stale_mac_connections(
+    hass: HomeAssistant, coordinator: WhiskerDataUpdateCoordinator
+) -> None:
+    """Drop byte-reversed MAC connections registered by older versions.
+
+    Builds before 1.2.0 registered the Wi-Fi MAC — and before 3.0.1 the
+    Bluetooth MAC — in the API's reversed byte order. The device registry
+    only ever merges connections, so the stale reversed rows sat alongside
+    the corrected ones forever. Remove exactly the reversed forms of the
+    currently known MACs; any other connection (including ones shared with
+    other integrations, e.g. a network integration merged via the correct
+    MAC) is left untouched.
+    """
+    registry = dr.async_get(hass)
+    for device_state in (coordinator.data or {}).values():
+        device = registry.async_get_device(
+            identifiers={(DOMAIN, device_state.serial_number)}
+        )
+        if device is None:
+            continue
+
+        stale: set[tuple[str, str]] = set()
+        for conn_type, mac in (
+            (CONNECTION_NETWORK_MAC, device_state.wifi_mac_address),
+            (CONNECTION_BLUETOOTH, device_state.bluetooth_mac_address),
+        ):
+            if not mac:
+                continue
+            reversed_mac = _reverse_mac(mac)
+            if reversed_mac and reversed_mac != mac:
+                stale.add((conn_type, format_mac(reversed_mac)))
+
+        to_remove = stale & device.connections
+        if to_remove:
+            _LOGGER.info(
+                "Removing stale reversed MAC connections from device %s: %s",
+                device_state.serial_number,
+                sorted(to_remove),
+            )
+            registry.async_update_device(
+                device.id, new_connections=device.connections - to_remove
+            )
 
 
 async def async_options_updated(hass: HomeAssistant, entry: WhiskerConfigEntry) -> None:
