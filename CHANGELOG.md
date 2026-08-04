@@ -35,14 +35,29 @@ README for the full attribution map.
   produces data.
 - **Rejection-aware connection lifecycle.** A SignalR Completion for
   `InitializeStreaming` is treated as a subscription rejection (the server
-  only sends one on failure); reconnect backoff resets only on received
-  data, never gives up (capped at 5-minute intervals — the server-side
+  only sends one on failure) and tears the connection down; a server Close
+  message does the same. Reconnect backoff resets only on received data,
+  never gives up (capped at 5-minute intervals — the server-side
   streaming-authorization gate has been observed to clear on its own), and
   connections that never produce data recycle after a 60 s grace period.
+  Silent stations re-arm the station-id probe on every poll, guarded by a
+  30-minute cooldown after a fully failed rotation.
+- **Single-notifier, identity-aware disconnect handling.** Every recycle
+  path closes the socket and lets the receive loop deliver exactly one
+  disconnect notification; the manager tears down the reporting instance
+  (tasks cancelled, socket closed) and ignores late notifications from
+  already-replaced connections — no duplicate connections, no leaked
+  sockets or tasks, including across integration unload.
+- Real-time pushes notify entity listeners without touching the poll
+  scheduler, so a publish interval shorter than the scan interval can no
+  longer starve the REST hazard/notification poll.
 - **Configurable real-time publish interval** (options, 1–60 s, default
   5 s): how often the ~4 Hz voltage stream writes to Home Assistant state.
   In-memory readings and freshness tracking always run at full rate.
-- Protocol golden-byte and regression tests; 79 tests total.
+- Protocol golden-byte and regression tests, station-probe tests, and
+  manager lifecycle tests (publish throttle, identity-aware disconnect
+  handling, capped never-give-up backoff, ping/close/grace runtime
+  paths); 94 tests total.
 
 ### Changed
 

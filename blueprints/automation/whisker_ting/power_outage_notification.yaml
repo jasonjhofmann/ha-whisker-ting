@@ -4,7 +4,7 @@ blueprint:
     Send a notification when a Ting sensor reports a power outage (and,
     optionally, when power is restored).
   domain: automation
-  source_url: https://github.com/billda/ha-ting-fire
+  source_url: https://github.com/jasonjhofmann/ha-whisker-ting/blob/main/blueprints/automation/whisker_ting/power_outage_notification.yaml
   input:
     power_outage_sensor:
       name: Power outage sensor

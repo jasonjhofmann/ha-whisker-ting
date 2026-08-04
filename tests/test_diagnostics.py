@@ -35,6 +35,8 @@ async def test_diagnostics_redacts_secrets(
     diag = await async_get_config_entry_diagnostics(hass, mock_config_entry)
     text = str(diag)
     assert "hunter2" not in text  # password
-    assert "80:6a:10:19:2a:b7" not in text  # wifi mac (stored reversed form)
+    assert (
+        "80:6a:10:19:2a:b7" not in text
+    )  # wifi mac (normalized physical form held by DeviceState)
     assert "ada@example.com" not in text  # email
     assert "TG-0001" in text  # non-secret serial is retained

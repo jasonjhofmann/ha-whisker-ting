@@ -169,7 +169,7 @@ action:
 
 ### Recency: gate an automation on "did this just happen"
 
-`Last brownout` and `Last weather alert` hold the *timestamp* of the most recent occurrence rather than an on/off state, so freshness is a template condition, not a trigger. This example escalates the (Phase 1) Power Quality Hazard binary sensor into a notification only when a brownout was also recorded in the last 10 minutes:
+`Last brownout` and `Last weather alert` hold the *timestamp* of the most recent occurrence rather than an on/off state, so freshness is a template condition, not a trigger. This example escalates the Power Quality Hazard binary sensor into a notification only when a brownout was also recorded in the last 10 minutes:
 
 ```yaml
 alias: "Ting: escalate power-quality hazard after a recent brownout"
@@ -179,7 +179,9 @@ trigger:
     to: "on"
 condition:
   - condition: template
-    value_template: "{{ (now() - states.sensor.<device>_last_brownout.state | as_datetime) < timedelta(minutes=10) }}"
+    value_template: >-
+      {{ states('sensor.<device>_last_brownout') not in ('unknown', 'unavailable')
+         and now() - states('sensor.<device>_last_brownout') | as_datetime < timedelta(minutes=10) }}
 action:
   - service: notify.mobile_app_phone
     data:
@@ -187,11 +189,11 @@ action:
       message: A power-quality hazard was flagged shortly after a brownout was recorded.
 ```
 
-`Last brownout` reads `unknown` until the first brownout notification ever arrives, which makes the condition above evaluate to false rather than error.
+`Last brownout` reads `unknown` until the first brownout notification ever arrives; the guard clause above makes the condition evaluate to false in that state instead of raising a template error (`as_datetime` of `unknown` is `None`, and comparing `now()` against `None` errors).
 
 ### Importable blueprint
 
-For the common case — notify on outage, optionally notify on restore — skip writing YAML: in Home Assistant, go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and import [`power_outage_notification.yaml`](blueprints/automation/whisker_ting/power_outage_notification.yaml) from this repository (or copy it into your `config/blueprints/automation/whisker_ting/` folder). It asks for your `Power outage` binary sensor and a notify target, and handles the rest.
+For the common case — notify on outage, optionally notify on restore — skip writing YAML: in Home Assistant, go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and import [`power_outage_notification.yaml`](https://github.com/jasonjhofmann/ha-whisker-ting/blob/main/blueprints/automation/whisker_ting/power_outage_notification.yaml) from this repository (or copy it into your `config/blueprints/automation/whisker_ting/` folder). It asks for your `Power outage` binary sensor and a notify target, and handles the rest.
 
 ### Skip automations entirely
 

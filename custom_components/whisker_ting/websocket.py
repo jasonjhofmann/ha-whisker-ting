@@ -44,6 +44,8 @@ class WhiskerWebSocket:
 
     # Consider data stale if no update in 30 seconds (normally ~4 Hz)
     STALE_DATA_THRESHOLD = 30
+    # Keepalive ping cadence (seconds)
+    PING_INTERVAL = 15
     # A connection that has never produced data gets this long before the
     # stale loop recycles it. Covers "accepted but silently unauthorized"
     # subscriptions, which the server has been observed to clear over time.
@@ -56,7 +58,7 @@ class WhiskerWebSocket:
         user_id: int,
         station_id: str,
         on_voltage_update: Callable[[str, VoltageData], None] | None = None,
-        on_disconnect: Callable[[str], None] | None = None,
+        on_disconnect: Callable[[str, WhiskerWebSocket], None] | None = None,
     ) -> None:
         """Initialize the WebSocket client."""
         self._session = session
@@ -151,13 +153,24 @@ class WhiskerWebSocket:
 
             _LOGGER.info("Connected to SignalR hub for station %s", self._station_id)
 
+        except asyncio.CancelledError:
+            await self._close_ws()
+            raise
         except Exception as err:  # noqa: BLE001 - connect spans network I/O, the
             # protocol handshake, and encoding; any failure must resolve to False.
             _LOGGER.error("Failed to connect to SignalR hub: %s", err)
             self._connected = False
+            # Don't leak the socket when a post-upgrade step failed
+            await self._close_ws()
             return False
         else:
             return True
+
+    async def _close_ws(self) -> None:
+        """Close the underlying WebSocket if it is open (best effort)."""
+        if self._ws and not self._ws.closed:
+            with contextlib.suppress(Exception):
+                await self._ws.close()
 
     async def disconnect(self) -> None:
         """Disconnect from the SignalR hub."""
@@ -203,19 +216,20 @@ class WhiskerWebSocket:
         """Dispatch one decoded SignalR hub message."""
         voltage_data = protocol.decode_voltage_update(message)
         if voltage_data is not None:
+            self._last_data_time = dt_util.utcnow()
+            if not self._first_data_received.is_set():
+                self._first_data_received.set()
             if self._on_voltage_update:
-                self._last_data_time = dt_util.utcnow()
                 self._on_voltage_update(self._station_id, voltage_data)
-                if not self._first_data_received.is_set():
-                    self._first_data_received.set()
             return
 
         if protocol.completion_message(message):
             # The server only sends a Completion for InitializeStreaming
             # when the subscription is NOT accepted (error or result:null);
             # an accepted stream never gets one. This state has been
-            # observed to clear server-side over time, so the manager keeps
-            # retrying with capped backoff rather than giving up.
+            # observed to clear server-side over time, so the connection is
+            # torn down and the manager keeps retrying with capped backoff
+            # rather than holding a known-dead subscription open.
             error = protocol.completion_error(message)
             _LOGGER.warning(
                 "Streaming subscription rejected for station %s%s",
@@ -223,12 +237,17 @@ class WhiskerWebSocket:
                 f": {error}" if error else " (silent result:null)",
             )
             self._stream_rejected.set()
+            self._connected = False  # receive loop exits and notifies
             return
 
-        if error := protocol.close_error(message):
+        if message[0] == protocol.MSG_TYPE_CLOSE:
+            error = protocol.close_error(message)
             _LOGGER.warning(
-                "Server closed stream for station %s: %s", self._station_id, error
+                "Server closed stream for station %s%s",
+                self._station_id,
+                f": {error}" if error else "",
             )
+            self._connected = False  # receive loop exits and notifies
             return
 
         if message[0] == protocol.MSG_TYPE_PING:
@@ -280,13 +299,17 @@ class WhiskerWebSocket:
                 self._connected = False
                 break
 
-        # Notify manager that we disconnected (for reconnection)
+        # Notify manager that we disconnected (for reconnection). The
+        # receive loop is the SOLE notifier — every other path (stale
+        # check, rejection, server Close) only flips _connected / closes
+        # the socket and lets this loop observe it, so the manager gets
+        # exactly one notification per connection lifetime.
         if not self._shutting_down and self._on_disconnect:
             _LOGGER.warning(
                 "WebSocket disconnected for station %s, triggering reconnect",
                 self._station_id,
             )
-            self._on_disconnect(self._station_id)
+            self._on_disconnect(self._station_id, self)
 
     async def _stale_data_check_loop(self) -> None:
         """Recycle the connection when the stream goes stale or stays silent."""
@@ -314,9 +337,12 @@ class WhiskerWebSocket:
                             self._station_id,
                             self.FIRST_DATA_GRACE,
                         )
+                        # Close the socket instead of notifying directly:
+                        # the receive loop wakes immediately on CLOSED and
+                        # is the sole notifier (prevents double-notify).
                         self._connected = False
-                        if self._on_disconnect:
-                            self._on_disconnect(self._station_id)
+                        if self._ws and not self._ws.closed:
+                            await self._ws.close()
                         break
                     continue
 
@@ -328,9 +354,12 @@ class WhiskerWebSocket:
                         self._station_id,
                         time_since_update,
                     )
+                    # Close the socket instead of notifying directly: the
+                    # receive loop wakes immediately on CLOSED and is the
+                    # sole notifier (prevents double-notify).
                     self._connected = False
-                    if self._on_disconnect:
-                        self._on_disconnect(self._station_id)
+                    if self._ws and not self._ws.closed:
+                        await self._ws.close()
                     break
 
             except asyncio.CancelledError:
@@ -344,7 +373,7 @@ class WhiskerWebSocket:
         """Send periodic spec-framed pings to keep the connection alive."""
         while self._connected and self._ws and not self._ws.closed:
             try:
-                await asyncio.sleep(15)  # Ping every 15 seconds
+                await asyncio.sleep(self.PING_INTERVAL)
                 if self._connected and self._ws and not self._ws.closed:
                     await self._ws.send_bytes(protocol.encode_ping())
                     _LOGGER.debug("Sent ping")
@@ -381,6 +410,7 @@ class WhiskerWebSocketManager:
         self._credentials: dict[str, dict] = {}  # Store credentials for reconnect
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
         self._reconnect_attempts: dict[str, int] = {}
+        self._teardown_tasks: set[asyncio.Task] = set()
         self._shutting_down = False
 
     def get_voltage_data(self, station_id: str) -> VoltageData | None:
@@ -428,14 +458,33 @@ class WhiskerWebSocketManager:
         if self._on_voltage_update:
             self._on_voltage_update(station_id, data)
 
-    def _handle_disconnect(self, station_id: str) -> None:
-        """Handle WebSocket disconnect - schedule reconnection."""
+    def _teardown(self, ws: WhiskerWebSocket) -> None:
+        """Schedule full teardown of a connection instance (idempotent).
+
+        disconnect() sets the instance's _shutting_down flag (so it can
+        never notify again), cancels its ping/receive/stale tasks, and
+        closes its socket — nothing can be orphaned with live tasks.
+        """
+        task = asyncio.create_task(ws.disconnect())
+        self._teardown_tasks.add(task)
+        task.add_done_callback(self._teardown_tasks.discard)
+
+    def _handle_disconnect(self, station_id: str, ws: WhiskerWebSocket) -> None:
+        """Handle a WebSocket disconnect notification (identity-aware)."""
+        # Always tear the reporting instance down, even when shutting down
+        # or when it is a stale notification from an already-replaced
+        # connection — this is what guarantees no socket/task leaks.
+        self._teardown(ws)
+
         if self._shutting_down:
             return
+        if self._connections.get(station_id) is not ws:
+            # Late notification from a connection that has already been
+            # replaced (or removed by disconnect_device): do not touch the
+            # current connection and do not schedule another reconnect.
+            return
 
-        # Remove old connection
-        if station_id in self._connections:
-            del self._connections[station_id]
+        del self._connections[station_id]
         # Force the next sample after reconnect to publish immediately
         self._last_publish_time.pop(station_id, None)
 
@@ -556,6 +605,13 @@ class WhiskerWebSocketManager:
             await ws.disconnect()
             del self._connections[station_id]
 
+        # Await any in-flight instance teardowns so unload leaves nothing
+        # running.
+        for task in list(self._teardown_tasks):
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._teardown_tasks.clear()
+
     async def disconnect_device(self, station_id: str) -> None:
         """Disconnect a specific device."""
         # Cancel any pending reconnect
@@ -567,18 +623,33 @@ class WhiskerWebSocketManager:
                     await task
             del self._reconnect_tasks[station_id]
 
-        if station_id in self._connections:
-            await self._connections[station_id].disconnect()
-            del self._connections[station_id]
+        # Pop before awaiting so a concurrent late disconnect notification
+        # sees the connection as already replaced and cannot double-handle.
+        ws = self._connections.pop(station_id, None)
+        self._last_publish_time.pop(station_id, None)
+        if ws:
+            await ws.disconnect()
 
     async def wait_for_data(self, station_id: str, timeout: float = 5.0) -> bool:  # noqa: ASYNC109
         """Wait for first voltage data from a specific station.
 
-        Returns True if data was received, False if timeout or not connected.
+        Returns True if data was received, False on timeout, rejection, or
+        no connection. Re-resolves the connection each slice so a
+        connection recycled mid-wait doesn't consume the whole timeout.
         """
-        # `timeout` forwards to WhiskerWebSocket.wait_for_data's own timeout
-        # contract; not a passthrough to another timeout-aware call.
-        ws = self._connections.get(station_id)
-        if ws:
-            return await ws.wait_for_data(timeout=timeout)
-        return False
+        # `timeout` is this method's own deadline contract; the per-slice
+        # waits below re-resolve the live connection object.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return False
+            ws = self._connections.get(station_id)
+            if ws is None:
+                await asyncio.sleep(min(0.5, remaining))
+                continue
+            if await ws.wait_for_data(timeout=min(2.0, remaining)):
+                return True
+            if ws.stream_rejected:
+                return False

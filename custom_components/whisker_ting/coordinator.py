@@ -108,10 +108,15 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             self._ws_manager.publish_interval = float(seconds)
 
     def voltage_is_live(self, device_id: str) -> bool:
-        """Return True if a fresh real-time voltage stream exists for a device."""
+        """Return True if a fresh real-time voltage stream exists for a device.
+
+        ``device_id`` is the device serial; the manager keys freshness by
+        station id, which differs from the serial on probed accounts.
+        """
         if not self._ws_manager:
             return False
-        return self._ws_manager.is_data_fresh(device_id)
+        station_id = self._discovered_station_ids.get(device_id, device_id)
+        return self._ws_manager.is_data_fresh(station_id)
 
     @callback
     def _handle_voltage_update(
@@ -134,7 +139,10 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                     voltage_lo=voltage_data.voltage_lo,
                     average_peaks_max=voltage_data.average_peaks_max,
                 )
-                self.async_set_updated_data(self.data)
+                # Notify entities WITHOUT async_set_updated_data: that call
+                # reschedules the poll timer, so pushes arriving faster
+                # than scan_interval would starve the REST poll entirely.
+                self.async_update_listeners()
                 break
 
     async def _connect_websocket(self, data: dict[str, DeviceState]) -> None:
@@ -295,6 +303,15 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         """Fetch data from the API."""
         try:
             data = await self.client.get_all_device_states()
+
+            # The API parser sets station_id to the serial; re-apply any
+            # probed station id on EVERY poll — the DeviceState objects are
+            # rebuilt each cycle, and _handle_voltage_update matches
+            # incoming samples against device_state.station_id.
+            for device_state in data.values():
+                known = self._discovered_station_ids.get(device_state.serial_number)
+                if known:
+                    device_state.station_id = known
 
             # Preserve existing voltage data from WebSocket
             if self.data:

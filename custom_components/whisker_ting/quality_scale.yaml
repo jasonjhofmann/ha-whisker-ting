@@ -6,9 +6,12 @@ rules:
       The integration registers no custom service actions.
   appropriate-polling: done
   brands:
-    status: todo
+    status: done
     comment: |
-      Deferred to Phase 3; the home-assistant/brands PR is not yet opened.
+      Brand assets ship in-tree at custom_components/whisker_ting/brand/
+      (icon.png, logo.png). home-assistant/brands PRs for custom
+      integrations auto-close since HA 2026.3.0, so in-tree is the
+      correct final state, not a stopgap.
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done
@@ -82,7 +85,13 @@ rules:
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default: done
-  entity-translations: done
+  entity-translations:
+    status: todo
+    comment: |
+      Most entities use translation_key, but several sensors still pass
+      hardcoded name= (voltage, voltage_high, voltage_low,
+      average_peaks_max, efh_level). Migrating them is pending; strings
+      must match the current names exactly to avoid renaming entities.
   exception-translations:
     status: exempt
     comment: |

@@ -9,6 +9,7 @@ from custom_components.whisker_ting.api import WhiskerAuthError, WhiskerConnecti
 from custom_components.whisker_ting.const import (
     CONF_ALERT_NOTIFICATIONS,
     CONF_SCAN_INTERVAL,
+    CONF_VOLTAGE_PUBLISH_INTERVAL,
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
@@ -81,7 +82,7 @@ async def test_ws_manager_created_on_setup(
 async def test_options_update_applies_scan_interval_and_notify_enabled(
     hass: HomeAssistant, mock_client, mock_config_entry, mock_ws_manager
 ):
-    """async_options_updated must push both options onto the live coordinator."""
+    """async_options_updated must push every option onto the live coordinator."""
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
@@ -89,12 +90,18 @@ async def test_options_update_applies_scan_interval_and_notify_enabled(
     coordinator = mock_config_entry.runtime_data
     assert coordinator.update_interval != timedelta(seconds=120)
     assert coordinator.notify_enabled is False
+    assert coordinator.voltage_publish_interval == 5
 
     hass.config_entries.async_update_entry(
         mock_config_entry,
-        options={CONF_SCAN_INTERVAL: 120, CONF_ALERT_NOTIFICATIONS: True},
+        options={
+            CONF_SCAN_INTERVAL: 120,
+            CONF_ALERT_NOTIFICATIONS: True,
+            CONF_VOLTAGE_PUBLISH_INTERVAL: 10,
+        },
     )
     await hass.async_block_till_done()
 
     assert coordinator.update_interval == timedelta(seconds=120)
     assert coordinator.notify_enabled is True
+    assert coordinator.voltage_publish_interval == 10
