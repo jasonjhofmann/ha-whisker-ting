@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.3
+
+### Changed
+
+- Rejection-aware reconnect cadence: after three consecutive explicit
+  subscription rejections (`Completion result:null`), retries slow from
+  the 5-minute cap to 30-minute intervals (any received data resets the
+  slowdown), and the station-id probe's failed-rotation cooldown widens
+  from 30 minutes to 4 hours. A live wire-format matrix probe showed the
+  rejection is independent of invocation field count and the
+  `x-wl-api-key` header — it is server-side authorization state, and
+  hammering it at reconnect cadence may itself look like the anomalous
+  traffic that sustains it.
+
 ## 3.0.2
 
 ### Fixed

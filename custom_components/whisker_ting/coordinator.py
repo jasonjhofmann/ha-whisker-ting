@@ -88,9 +88,9 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             (config_entry.options.get(CONF_STATION_IDS) or {}) if config_entry else {}
         )
         self._probe_tasks: dict[str, asyncio.Task] = {}
-        # After a full candidate rotation fails, wait this long before
-        # probing again (the manager's capped backoff keeps retrying the
-        # serial in the meantime).
+        # After a full candidate rotation fails, wait four hours before
+        # probing again (the manager's rejection-aware backoff keeps
+        # retrying the serial in the meantime).
         self._probe_cooldown_until: dict[str, datetime] = {}
 
     async def _async_setup(self) -> None:
@@ -269,7 +269,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 api_key=api_key, user_id=user_id, station_id=device_state.serial_number
             )
         device_state.station_id = device_state.serial_number
-        self._probe_cooldown_until[serial] = dt_util.utcnow() + timedelta(minutes=30)
+        self._probe_cooldown_until[serial] = dt_util.utcnow() + timedelta(hours=4)
 
     def _persist_station_id(self, serial: str, station_id: str) -> None:
         """Persist a discovered station id to config-entry options."""

@@ -392,6 +392,13 @@ class WhiskerWebSocketManager:
     RECONNECT_MIN_DELAY = 5
     RECONNECT_MAX_DELAY = 300  # 5 minutes max
     RECONNECT_BACKOFF_FACTOR = 2
+    # After this many consecutive explicit subscription rejections
+    # (Completion result:null), slow down further: the server-side
+    # streaming-authorization state has been observed to persist for
+    # hours, and frequent re-subscription attempts may look like the
+    # anomalous traffic that trips it in the first place.
+    REJECTION_SLOWDOWN_THRESHOLD = 3
+    REJECTED_RECONNECT_DELAY = 1800  # 30 minutes
 
     def __init__(
         self,
@@ -410,6 +417,7 @@ class WhiskerWebSocketManager:
         self._credentials: dict[str, dict] = {}  # Store credentials for reconnect
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
         self._reconnect_attempts: dict[str, int] = {}
+        self._rejection_counts: dict[str, int] = {}
         self._teardown_tasks: set[asyncio.Task] = set()
         self._shutting_down = False
 
@@ -440,6 +448,7 @@ class WhiskerWebSocketManager:
         # Reset reconnect attempts on successful data (not on mere connect —
         # a connect that never yields data must keep escalating its backoff)
         self._reconnect_attempts[station_id] = 0
+        self._rejection_counts[station_id] = 0
 
         last_publish = self._last_publish_time.get(station_id)
         if (
@@ -487,6 +496,10 @@ class WhiskerWebSocketManager:
         del self._connections[station_id]
         # Force the next sample after reconnect to publish immediately
         self._last_publish_time.pop(station_id, None)
+        if ws.stream_rejected:
+            self._rejection_counts[station_id] = (
+                self._rejection_counts.get(station_id, 0) + 1
+            )
 
         # Schedule reconnection
         if (
@@ -518,6 +531,14 @@ class WhiskerWebSocketManager:
             self.RECONNECT_MIN_DELAY * (self.RECONNECT_BACKOFF_FACTOR**attempts),
             self.RECONNECT_MAX_DELAY,
         )
+        # A repeatedly rejected subscription retries much more slowly:
+        # hammering a server-side authorization refusal at reconnect
+        # cadence may itself look like the anomaly that sustains it.
+        if (
+            self._rejection_counts.get(station_id, 0)
+            >= self.REJECTION_SLOWDOWN_THRESHOLD
+        ):
+            delay = max(delay, self.REJECTED_RECONNECT_DELAY)
 
         _LOGGER.info(
             "Reconnecting to station %s in %.0f seconds (attempt %d)",

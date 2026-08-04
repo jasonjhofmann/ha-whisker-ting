@@ -274,3 +274,43 @@ async def test_grace_recycle_closes_socket_and_notifies_once(monkeypatch):
     assert ws.closed is True
     assert notifies == ["TG-0001"]  # exactly one notification
     await client.disconnect()
+
+
+async def test_repeated_rejections_slow_the_backoff(monkeypatch):
+    """Three consecutive rejections widen the retry to the slow cadence."""
+    manager = WhiskerWebSocketManager(session=MagicMock())
+    manager._credentials["TG-0001"] = {"api_key": "k", "user_id": 1}
+
+    for _ in range(manager.REJECTION_SLOWDOWN_THRESHOLD):
+        rejected = _fake_conn()
+        rejected.stream_rejected = True
+        manager._connections["TG-0001"] = rejected
+        manager._handle_disconnect("TG-0001", rejected)
+        task = manager._reconnect_tasks.pop("TG-0001")
+        task.cancel()
+        for t in list(manager._teardown_tasks):
+            await t
+
+    delays = []
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    class _FakeSocket:
+        def __init__(self, **kwargs):
+            pass
+
+        async def connect(self):
+            return True
+
+    monkeypatch.setattr(
+        "custom_components.whisker_ting.websocket.WhiskerWebSocket", _FakeSocket
+    )
+    await manager._reconnect_with_backoff("TG-0001")
+    assert delays == [manager.REJECTED_RECONNECT_DELAY]
+
+    # ...and received data resets the slowdown
+    manager._handle_voltage_update("TG-0001", _sample())
+    assert manager._rejection_counts["TG-0001"] == 0
