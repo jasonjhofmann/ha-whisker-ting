@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.3.0
+
+### Fixed
+
+- **Release the station's subscription before subscribing, and on every
+  disconnect. This is the fix for "subscription accepted but no data
+  ever arrives."** A subscription the server still holds for a station
+  makes it acknowledge a new `InitializeStreaming` with a void Completion
+  and then never fan out the stream to that connection. The official app
+  pairs `InitializeStreaming` with `UnInitializeStreaming`
+  (`chunk-GBDILMAT.js`: `invokeStreamingMethod` /
+  `unInvokeStreamingMethod`); no third-party client has ever called the
+  teardown, so any dropped connection leaked a registration that blocked
+  every later subscribe for that station.
+- `connect()` now sends `UnInitializeStreaming` immediately before
+  `InitializeStreaming` (SignalR processes invocations from one
+  connection in order), and `disconnect()` plus both stale/grace recycle
+  paths release the subscription before the socket goes away.
+- Verified live, back to back under identical conditions: subscribe-only
+  received 0 samples in 90 s; release-then-subscribe delivered voltage in
+  about 4 seconds.
+
 ## 3.2.0
 
 ### Changed

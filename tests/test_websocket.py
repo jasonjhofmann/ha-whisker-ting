@@ -124,8 +124,11 @@ async def test_connect_sends_spec_framed_invocation_and_ping():
     client = _client(session, api_key="secret", user_id=42)
     assert await client.connect() is True
 
-    assert len(ws.sent_bytes) == 1
-    (body,) = list(protocol.iter_binary_frames(ws.sent_bytes[0]))
+    # Two invocations are sent on connect: the subscription release
+    # followed by the subscribe (see
+    # test_connect_releases_stale_subscription_before_subscribing).
+    assert len(ws.sent_bytes) == 2
+    (body,) = list(protocol.iter_binary_frames(ws.sent_bytes[1]))
     message = msgpack.unpackb(body, raw=False, strict_map_key=False)
     assert isinstance(message, list)  # flat array, not a map
     assert len(message) == 6  # six fields incl. trailing stream IDs
@@ -221,3 +224,46 @@ async def test_rejection_fast_fail():
     assert await client.wait_for_data(timeout=2.0) is False
     assert client.stream_rejected is True
     await client.disconnect()
+
+
+async def test_connect_releases_stale_subscription_before_subscribing():
+    """UnInitializeStreaming must precede InitializeStreaming.
+
+    A subscription the server still holds for the station makes it
+    acknowledge a new InitializeStreaming and then never stream to it.
+    Verified live: subscribe-only got 0 samples in 90 s; releasing first
+    delivered voltage in ~4 s under identical conditions.
+    """
+    handshake = _Msg(aiohttp.WSMsgType.TEXT, _HANDSHAKE_OK)
+    ack = _Msg(aiohttp.WSMsgType.BINARY, completion_frame())
+    session, ws = _make([handshake, ack])
+    client = _client(session, api_key="secret", user_id=42)
+    assert await client.connect() is True
+
+    targets = []
+    for raw in ws.sent_bytes:
+        for body in protocol.iter_binary_frames(raw):
+            m = msgpack.unpackb(body, raw=False, strict_map_key=False)
+            if isinstance(m, list) and len(m) >= 4 and isinstance(m[3], str):
+                targets.append(m[3])
+    assert targets[:2] == ["UnInitializeStreaming", "InitializeStreaming"]
+    await client.disconnect()
+
+
+async def test_disconnect_releases_the_subscription():
+    """Dropping without teardown leaks a registration that blocks retries."""
+    handshake = _Msg(aiohttp.WSMsgType.TEXT, _HANDSHAKE_OK)
+    ack = _Msg(aiohttp.WSMsgType.BINARY, completion_frame())
+    session, ws = _make([handshake, ack])
+    client = _client(session)
+    assert await client.connect() is True
+    before = len(ws.sent_bytes)
+    await client.disconnect()
+
+    targets = []
+    for raw in ws.sent_bytes[before:]:
+        for body in protocol.iter_binary_frames(raw):
+            m = msgpack.unpackb(body, raw=False, strict_map_key=False)
+            if isinstance(m, list) and len(m) >= 4 and isinstance(m[3], str):
+                targets.append(m[3])
+    assert "UnInitializeStreaming" in targets

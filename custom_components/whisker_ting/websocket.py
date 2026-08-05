@@ -45,16 +45,13 @@ class WhiskerWebSocket:
     # Consider data stale if no update in 30 seconds (normally ~4 Hz).
     # The official app uses serverTimeoutInMilliseconds = 20000.
     STALE_DATA_THRESHOLD = 30
-    # Keepalive ping cadence (seconds). MUST match the official app's
-    # keepAliveIntervalInMilliseconds = 3000 (chunk-GBDILMAT.js). This is
-    # load-bearing, not cosmetic: with a 15 s cadence the hub accepts the
-    # subscription (void Completion) but never fans out the voltage stream.
-    # Verified by simultaneous A/B on one account — 15 s: 0 samples/60 s;
-    # 3 s: 360 samples/90 s (4 Hz).
+    # Keepalive ping cadence (seconds), matching the official app's
+    # keepAliveIntervalInMilliseconds = 3000 (chunk-GBDILMAT.js). Parity
+    # with the reference client; it does NOT gate stream delivery.
     PING_INTERVAL = 3
     # A connection that has never produced data gets this long before the
-    # stale loop recycles it. Covers "accepted but silently unauthorized"
-    # subscriptions, which the server has been observed to clear over time.
+    # stale loop recycles it. The recycle tears the subscription down
+    # properly (UnInitializeStreaming) so the retry can re-register.
     FIRST_DATA_GRACE = 60
 
     def __init__(
@@ -138,12 +135,27 @@ class WhiskerWebSocket:
                     f"SignalR handshake failed: {handshake_result['error']}"
                 )
 
-            # Subscribe to the device stream using api_key as the token
             init_args = [
                 {"StationId": self._station_id, "DataElement": "ComboBinaryData"},
                 self._api_key,
                 str(self._user_id),
             ]
+
+            # Release any subscription the server still holds for this
+            # station BEFORE subscribing. A stale registration (left by any
+            # client that dropped without tearing down) makes the server
+            # acknowledge a new InitializeStreaming and then never fan out
+            # the stream to it. The official app always pairs these calls
+            # (chunk-GBDILMAT.js: invokeStreamingMethod /
+            # unInvokeStreamingMethod); no third-party client ever has.
+            # SignalR processes invocations from one connection in order
+            # (MaximumParallelInvocationsPerClient defaults to 1), so the
+            # release is guaranteed to be handled before the subscribe.
+            await self._ws.send_bytes(
+                self._encode_invocation("UnInitializeStreaming", init_args)
+            )
+
+            # Subscribe to the device stream using api_key as the token
             init_msg = self._encode_invocation("InitializeStreaming", init_args)
             await self._ws.send_bytes(init_msg)
 
@@ -172,6 +184,25 @@ class WhiskerWebSocket:
         else:
             return True
 
+    async def _send_uninitialize(self) -> None:
+        """Best-effort teardown of this station's server-side subscription.
+
+        Leaving a subscription registered blocks every later subscribe for
+        the station (the server acknowledges them and streams nothing), so
+        this must run before the socket goes away.
+        """
+        if not self._ws or self._ws.closed:
+            return
+        args = [
+            {"StationId": self._station_id, "DataElement": "ComboBinaryData"},
+            self._api_key,
+            str(self._user_id),
+        ]
+        with contextlib.suppress(Exception):
+            await self._ws.send_bytes(
+                self._encode_invocation("UnInitializeStreaming", args)
+            )
+
     async def _close_ws(self) -> None:
         """Close the underlying WebSocket if it is open (best effort)."""
         if self._ws and not self._ws.closed:
@@ -179,9 +210,13 @@ class WhiskerWebSocket:
                 await self._ws.close()
 
     async def disconnect(self) -> None:
-        """Disconnect from the SignalR hub."""
+        """Disconnect from the SignalR hub, releasing the subscription."""
         self._shutting_down = True
         self._connected = False
+
+        # Release the server-side subscription first; a leaked registration
+        # blocks every subsequent subscribe for this station.
+        await self._send_uninitialize()
 
         for task in [self._ping_task, self._receive_task, self._stale_check_task]:
             if task:
@@ -354,6 +389,7 @@ class WhiskerWebSocket:
                         # the receive loop wakes immediately on CLOSED and
                         # is the sole notifier (prevents double-notify).
                         self._connected = False
+                        await self._send_uninitialize()
                         if self._ws and not self._ws.closed:
                             await self._ws.close()
                         break
@@ -371,6 +407,7 @@ class WhiskerWebSocket:
                     # receive loop wakes immediately on CLOSED and is the
                     # sole notifier (prevents double-notify).
                     self._connected = False
+                    await self._send_uninitialize()
                     if self._ws and not self._ws.closed:
                         await self._ws.close()
                     break
