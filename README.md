@@ -199,6 +199,49 @@ For the common case — notify on outage, optionally notify on restore — skip 
 
 Turn on **Alert notifications** under **Settings** → **Devices & Services** → **Whisker Ting** → **Configure** to have the integration post an HA persistent notification for each new significant alert itself — see [Options](#options) above.
 
+## How the live voltage stream works
+
+Useful if you are debugging this integration or writing another client.
+All of it was established empirically against the live service and
+cross-checked against the official app's JavaScript bundle.
+
+The stream is [ASP.NET Core SignalR](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md)
+over a WebSocket at `wss://signalr.api.wskr.io/dataHub`, MessagePack
+protocol, connected directly with `skipNegotiation` (no `/negotiate`
+call). Credentials are the Cognito attributes `custom:api_key` and
+`custom:user_id`; `StationId` is the sensor's serial number.
+
+Four things are easy to get wrong, and every published fork got at least
+one of them wrong:
+
+1. **Binary framing.** Every outgoing hub message must be a flat array
+   prefixed with a 7-bit VarInt length. The original client sent a bare
+   `{1: [...]}` MessagePack map with no prefix; the server dropped such
+   connections about 70 ms after the first keepalive ping, producing an
+   endless reconnect loop.
+2. **A void Completion is a success acknowledgement, not a rejection.**
+   `InitializeStreaming` is a blocking invocation, so the server answers
+   it with a Completion carrying `ResultKind 2` (void). Voltage arrives
+   *afterwards*, as separate server-to-client invocations on the same
+   socket. Only `ResultKind 1` carries an error and means the
+   subscription was refused. Closing the connection on a void Completion
+   makes data delivery impossible.
+3. **Release the subscription before subscribing.** The hub holds one
+   subscription per station. If a client goes away without calling
+   `UnInitializeStreaming`, that registration persists, and every later
+   `InitializeStreaming` for the station is acknowledged and then served
+   nothing — indefinitely. The official app pairs the two calls; third-party
+   clients historically never called the teardown at all. Always release
+   before subscribing, and release again on disconnect.
+4. **`StationId` is the sensor serial.** Probing alternative identifiers
+   (site id, SoC serial, group id) cannot work, because the hub returns
+   the same void acknowledgement for *any* value supplied — "no data
+   arrived" never distinguishes a wrong station from a blocked stream.
+
+The stream itself runs at about 4 Hz. This integration keeps every sample
+in memory but rate-limits state writes (see the **Real-time voltage
+publish interval** option) so the recorder isn't flooded.
+
 ## Troubleshooting
 
 ### Voltage shows "Unknown" briefly on startup
@@ -209,9 +252,23 @@ This is normal — the integration waits for the WebSocket connection to receive
 
 The real-time voltage sensors depend on a live WebSocket stream. If the stream disconnects and cannot be re-established, these sensors report unavailable (rather than a frozen last value) until the stream recovers. The hazard and diagnostic sensors continue to update from the regular API poll regardless of stream state.
 
-### Voltage stays "Unknown" after install or upgrade
+### Voltage stays "Unknown" or "Unavailable" indefinitely
 
-Ting's server sometimes rejects the streaming subscription for an account with a silent `result: null` — a server-side authorization state that has been observed to clear on its own after some hours and a few connection attempts. The integration handles this automatically: it probes alternate station identifiers (device serial, site id, SoC serial, group id) in the background, remembers the first one that works, and otherwise keeps retrying with capped backoff (up to every 5 minutes) indefinitely. If voltage sensors are still `Unknown` a day after setup while the app shows live Power Quality data, please open an issue with debug logs.
+Almost always this means the server is still holding a **stale streaming
+subscription** for your sensor. The hub keeps one subscription per station;
+if any client disconnected without releasing it, the registration sticks,
+and every later `InitializeStreaming` for that station is acknowledged
+normally and then never sent any data.
+
+Version 3.3.0 fixes this: the integration releases the subscription
+(`UnInitializeStreaming`) immediately before subscribing, and again on
+disconnect, so a stale registration is cleared automatically and can no
+longer be leaked. If you were stuck on an earlier version, upgrading and
+restarting is enough — no account or server-side intervention is needed.
+
+Note that hazard, notification and diagnostic entities are unaffected by
+any of this; they use the REST API and keep working even when the stream
+is down.
 
 ### Upgrading from a pre-3.0 fork: log spam / reconnect loops
 
@@ -229,7 +286,7 @@ This codebase consolidates the work of the entire fork family:
 
 - **Aiden Mitchell / simplytoast1** — the original integration ([simplytoast1/ha-whisker-ting](https://github.com/simplytoast1/ha-whisker-ting)).
 - **Stu Chuang Matthews (fourmajor)** — spec-compliant SignalR VarInt framing, six-field invocation encoding, framed keepalive pings, and named-field voltage decoding ([fourmajor/ha-whisker-ting](https://github.com/fourmajor/ha-whisker-ting)).
-- **Adam Thompson (adamjthompson)** — the `x-wl-api-key` upgrade-header authorization (from a capture of the official app's traffic), nested binary-blob payload decoding, Completion-as-rejection semantics, and station-id candidate probing ([adamjthompson/whisker_ting](https://github.com/adamjthompson/whisker_ting)).
+- **Adam Thompson (adamjthompson)** — the `x-wl-api-key` upgrade-header authorization (from a capture of the official app's traffic) and nested binary-blob payload decoding ([adamjthompson/whisker_ting](https://github.com/adamjthompson/whisker_ting)). His fork also independently found the SignalR framing bug, in parallel with the diagnosis in simplytoast1#1.
 - **Bill (billda)** — the alert feed (event entity, typed timestamp sensors, power-outage binary sensor), opt-in notifications and blueprint, multi-device site naming, redacted diagnostics, reauth flow, and the pytest test harness ([billda/ha-ting-fire](https://github.com/billda/ha-ting-fire)).
 - **calasanzio, mbedworth, marccatalano, tcsmedes** — the field debugging in [simplytoast1/ha-whisker-ting#1](https://github.com/simplytoast1/ha-whisker-ting/issues/1) that pinned the framing root cause (the millisecond-precise ping-kill capture, the credential-swap analysis, and the server-response writeups).
 - **Jason Hofmann (jasonjhofmann)** — WebSocket decode/availability hardening, update throttling, Cognito token-expiry handling, MAC-address device connections, surfaced power-quality/connectivity/subscription fields, and this consolidation.

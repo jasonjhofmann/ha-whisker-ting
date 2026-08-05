@@ -24,6 +24,21 @@ Consolidated from three independent fixes:
   ping-timing capture, mbedworth's credential analysis, marccatalano's
   server-response writeup).
 
+Two further behaviours of Ting's hub, established empirically against the
+live service and cross-checked against the official app's bundle:
+
+- ``InitializeStreaming`` is a blocking invocation, so the server answers
+  it with a Completion of ``ResultKind 2`` (void). That is a SUCCESS
+  acknowledgement; voltage arrives afterwards as separate
+  server-to-client invocations. Only ``ResultKind 1`` carries an error.
+  See :func:`completion_message` / :func:`completion_error`.
+- The hub holds one subscription per station and does not release it
+  implicitly when a connection drops. A leaked registration makes every
+  later subscribe for that station return the same void acknowledgement
+  and deliver nothing. Clients must call ``UnInitializeStreaming`` before
+  subscribing and on teardown; the official app always pairs them
+  (``invokeStreamingMethod`` / ``unInvokeStreamingMethod``).
+
 Spec: https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md
 """
 

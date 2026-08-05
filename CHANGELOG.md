@@ -79,6 +79,11 @@
 
 ## 3.0.3
 
+> **Superseded.** The 3.0.x entries below describe a "server-side
+> streaming-authorization gate" that does not exist. The real cause was a
+> stale server-side subscription plus two regressions of our own; see
+> 3.1.0, 3.1.1 and 3.3.0. The text is kept for history.
+
 ### Changed
 
 - Rejection-aware reconnect cadence: after three consecutive explicit

@@ -1,11 +1,29 @@
 """WebSocket client for real-time Whisker Ting data.
 
 Transport lifecycle lives here; all wire encoding/decoding lives in
-``protocol.py``. The connection sends spec-framed SignalR messages — the
-unframed ``{1: [...]}`` map encoding the original integration used caused
-the server to drop every connection (~70 ms after the first keepalive
-ping), producing a permanent reconnect churn loop. See protocol.py for
-the full history and credits.
+``protocol.py``.
+
+Two server behaviours dominate the design of this module, both learned
+the hard way (see ``protocol.py`` for the wire-level details):
+
+1. ``InitializeStreaming`` is answered with a *void* Completion — a
+   success acknowledgement — and the voltage stream follows afterwards as
+   separate server-to-client invocations on the SAME socket. The
+   connection must therefore stay open after the acknowledgement; closing
+   it there makes data delivery impossible.
+2. The hub holds ONE subscription per station, and it is not implicitly
+   released when a connection goes away. A leaked registration causes
+   every later ``InitializeStreaming`` for that station to be
+   acknowledged and then served nothing, indefinitely. So this client
+   sends ``UnInitializeStreaming`` immediately before subscribing, and
+   again on every teardown path (``disconnect``, plus the stale-data and
+   first-data-grace recycles). The official app pairs the two calls the
+   same way.
+
+Historical note: the original client sent an unframed ``{1: [...]}`` map
+instead of a length-prefixed flat array, which made the server drop every
+connection ~70 ms after the first keepalive ping — a permanent reconnect
+churn loop. That is fixed in ``protocol.py``.
 """
 
 from __future__ import annotations
@@ -442,11 +460,10 @@ class WhiskerWebSocketManager:
     RECONNECT_MIN_DELAY = 5
     RECONNECT_MAX_DELAY = 300  # 5 minutes max
     RECONNECT_BACKOFF_FACTOR = 2
-    # After this many consecutive explicit subscription rejections
-    # (Completion result:null), slow down further: the server-side
-    # streaming-authorization state has been observed to persist for
-    # hours, and frequent re-subscription attempts may look like the
-    # anomalous traffic that trips it in the first place.
+    # After this many consecutive genuine rejections (a Completion
+    # carrying an error, ResultKind 1 — NOT the routine void
+    # acknowledgement), back off hard. A real refusal is an account- or
+    # station-level problem that retrying quickly cannot fix.
     REJECTION_SLOWDOWN_THRESHOLD = 3
     REJECTED_RECONNECT_DELAY = 1800  # 30 minutes
 
@@ -581,9 +598,9 @@ class WhiskerWebSocketManager:
             self.RECONNECT_MIN_DELAY * (self.RECONNECT_BACKOFF_FACTOR**attempts),
             self.RECONNECT_MAX_DELAY,
         )
-        # A repeatedly rejected subscription retries much more slowly:
-        # hammering a server-side authorization refusal at reconnect
-        # cadence may itself look like the anomaly that sustains it.
+        # A repeatedly and genuinely refused subscription retries slowly;
+        # only error-carrying Completions count, so a healthy stream can
+        # never trip this.
         if (
             self._rejection_counts.get(station_id, 0)
             >= self.REJECTION_SLOWDOWN_THRESHOLD
