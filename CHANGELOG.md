@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.3.1
+
+Documentation only; no functional change from 3.3.0. Released so the
+published artifact carries the corrected docs — the 3.3.0 release tree
+still contained the retracted "server-side authorization gate" narrative
+and referred to a station-id probe that had already been removed.
+
+- README: rewrote the stuck-voltage troubleshooting entry around the real
+  cause (a stale subscription held for the station) and added a "How the
+  live voltage stream works" section documenting the four things every
+  fork got wrong.
+- `websocket.py` / `protocol.py` module docstrings now state the void-ack
+  and one-subscription-per-station behaviours that drive the design.
+- Corrected the rejection-backoff comments and the credits line that
+  attributed since-removed behaviour; flagged the 3.0.x entries below as
+  superseded rather than rewriting them.
+
 ## 3.3.0
 
 ### Fixed
