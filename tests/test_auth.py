@@ -7,8 +7,10 @@ import datetime as dt
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from aioresponses import aioresponses
 import pytest
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMockResponse,
+)
 
 from custom_components.whisker_ting.auth import (
     COGNITO_IDP_URL,
@@ -119,22 +121,33 @@ def test_srp_signature_frozen_characterization(freezer):
     )
 
 
-async def test_authenticate_end_to_end(hass: HomeAssistant):
-    with aioresponses() as m:
-        m.post(COGNITO_IDP_URL, payload=CHALLENGE)  # InitiateAuth
-        m.post(COGNITO_IDP_URL, payload=TOKENS)  # RespondToAuthChallenge
-        m.post(COGNITO_IDP_URL, payload=USER)  # GetUser
-        auth = WhiskerAuth(async_get_clientsession(hass))
-        result = await auth.authenticate("ada", "pw")
+async def test_authenticate_end_to_end(hass: HomeAssistant, aioclient_mock):
+    """Drive the three-step Cognito SRP exchange end to end.
+
+    Uses Home Assistant's own aiohttp mocker rather than aioresponses,
+    which cannot construct a ClientResponse on aiohttp 3.14+ (it does not
+    pass the now-required stream_writer). All three calls go to the same
+    Cognito endpoint and are distinguished by the X-Amz-Target header, so
+    a side_effect returns the right payload for each step.
+    """
+    steps = iter((CHALLENGE, TOKENS, USER))
+
+    async def respond(method, url, data):
+        return AiohttpClientMockResponse(method=method, url=url, json=next(steps))
+
+    aioclient_mock.post(COGNITO_IDP_URL, side_effect=respond)
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    result = await auth.authenticate("ada", "pw")
     assert result["access_token"] == "at"
     assert {"Name": "custom:api_key", "Value": "fake-api-key"} in result[
         "user_attributes"
     ]
 
 
-async def test_authenticate_bad_credentials(hass: HomeAssistant):
-    with aioresponses() as m:
-        m.post(COGNITO_IDP_URL, status=400, body='{"__type":"NotAuthorizedException"}')
-        auth = WhiskerAuth(async_get_clientsession(hass))
-        with pytest.raises(AuthenticationError):
-            await auth.authenticate("ada", "wrong")
+async def test_authenticate_bad_credentials(hass: HomeAssistant, aioclient_mock):
+    aioclient_mock.post(
+        COGNITO_IDP_URL, status=400, text='{"__type":"NotAuthorizedException"}'
+    )
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    with pytest.raises(AuthenticationError):
+        await auth.authenticate("ada", "wrong")

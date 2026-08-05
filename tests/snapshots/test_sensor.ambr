@@ -1,8 +1,9 @@
 # serializer version: 1
 # name: test_entities[binary_sensor.home_connectivity-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -38,8 +39,8 @@
 # name: test_entities[binary_sensor.home_connectivity-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'connectivity',
-      'friendly_name': 'Home Connectivity',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Connectivity',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_connectivity',
@@ -51,8 +52,9 @@
 # ---
 # name: test_entities[binary_sensor.home_electrical_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -88,8 +90,8 @@
 # name: test_entities[binary_sensor.home_electrical_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'safety',
-      'friendly_name': 'Home Electrical Fire Hazard',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'safety',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Electrical Fire Hazard',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_electrical_fire_hazard',
@@ -101,8 +103,9 @@
 # ---
 # name: test_entities[binary_sensor.home_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -138,8 +141,8 @@
 # name: test_entities[binary_sensor.home_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'safety',
-      'friendly_name': 'Home Fire Hazard',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'safety',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Fire Hazard',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_fire_hazard',
@@ -151,8 +154,9 @@
 # ---
 # name: test_entities[binary_sensor.home_frozen_pipe_risk-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -188,8 +192,8 @@
 # name: test_entities[binary_sensor.home_frozen_pipe_risk-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'cold',
-      'friendly_name': 'Home Frozen Pipe Risk',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'cold',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Frozen Pipe Risk',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_frozen_pipe_risk',
@@ -201,8 +205,9 @@
 # ---
 # name: test_entities[binary_sensor.home_hvac_verified-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -237,8 +242,9 @@
 # ---
 # name: test_entities[binary_sensor.home_is_owner-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -273,8 +279,9 @@
 # ---
 # name: test_entities[binary_sensor.home_learning_mode-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -310,8 +317,8 @@
 # name: test_entities[binary_sensor.home_learning_mode-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'running',
-      'friendly_name': 'Home Learning Mode',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'running',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Learning Mode',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_learning_mode',
@@ -323,8 +330,9 @@
 # ---
 # name: test_entities[binary_sensor.home_power_outage-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -360,8 +368,8 @@
 # name: test_entities[binary_sensor.home_power_outage-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'problem',
-      'friendly_name': 'Home Power outage',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'problem',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Power outage',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_power_outage',
@@ -373,8 +381,9 @@
 # ---
 # name: test_entities[binary_sensor.home_power_quality_hazard-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -410,8 +419,8 @@
 # name: test_entities[binary_sensor.home_power_quality_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'safety',
-      'friendly_name': 'Home Power Quality Hazard',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'safety',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Power Quality Hazard',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_power_quality_hazard',
@@ -423,8 +432,9 @@
 # ---
 # name: test_entities[binary_sensor.home_utility_fire_hazard-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -460,8 +470,8 @@
 # name: test_entities[binary_sensor.home_utility_fire_hazard-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'safety',
-      'friendly_name': 'Home Utility Fire Hazard',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'safety',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Utility Fire Hazard',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.home_utility_fire_hazard',
@@ -473,11 +483,12 @@
 # ---
 # name: test_entities[event.home_alerts-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'event_types': list([
+      <EventEntityCapabilityAttribute.EVENT_TYPES: 'event_types'>: list([
         'PowerOutage',
         'PowerOutageAndRestored',
         'PowerRestored',
@@ -522,8 +533,8 @@
 # name: test_entities[event.home_alerts-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'event_type': None,
-      'event_types': list([
+      <EventEntityStateAttribute.EVENT_TYPE: 'event_type'>: None,
+      <EventEntityCapabilityAttribute.EVENT_TYPES: 'event_types'>: list([
         'PowerOutage',
         'PowerOutageAndRestored',
         'PowerRestored',
@@ -534,7 +545,7 @@
         'FrozenPipe',
         'unknown',
       ]),
-      'friendly_name': 'Home Alerts',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Alerts',
     }),
     'context': <ANY>,
     'entity_id': 'event.home_alerts',
@@ -546,11 +557,12 @@
 # ---
 # name: test_entities[sensor.home_average_peaks_max-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -584,8 +596,9 @@
 # ---
 # name: test_entities[sensor.home_bluetooth_mac_address-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -620,11 +633,12 @@
 # ---
 # name: test_entities[sensor.home_current_voltage-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -662,10 +676,10 @@
 # name: test_entities[sensor.home_current_voltage-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'voltage',
-      'friendly_name': 'Home Current voltage',
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
-      'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'voltage',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Current voltage',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfElectricPotential.VOLT: 'V'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_current_voltage',
@@ -677,8 +691,9 @@
 # ---
 # name: test_entities[sensor.home_device_type-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -714,7 +729,7 @@
 # name: test_entities[sensor.home_device_type-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Device Type',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Device Type',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_device_type',
@@ -726,11 +741,12 @@
 # ---
 # name: test_entities[sensor.home_electrical_fire_hazard_level-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -765,8 +781,8 @@
 # name: test_entities[sensor.home_electrical_fire_hazard_level-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Electrical fire hazard level',
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Electrical fire hazard level',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_electrical_fire_hazard_level',
@@ -778,8 +794,9 @@
 # ---
 # name: test_entities[sensor.home_electrical_fire_hazard_message-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -815,7 +832,7 @@
 # name: test_entities[sensor.home_electrical_fire_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Electrical Fire Hazard Message',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Electrical Fire Hazard Message',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_electrical_fire_hazard_message',
@@ -827,8 +844,9 @@
 # ---
 # name: test_entities[sensor.home_electrical_fire_hazard_status-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -864,7 +882,7 @@
 # name: test_entities[sensor.home_electrical_fire_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Electrical Fire Hazard Status',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Electrical Fire Hazard Status',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_electrical_fire_hazard_status',
@@ -876,8 +894,9 @@
 # ---
 # name: test_entities[sensor.home_firmware_version-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -912,8 +931,9 @@
 # ---
 # name: test_entities[sensor.home_group-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -948,8 +968,9 @@
 # ---
 # name: test_entities[sensor.home_hazard_message-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -985,7 +1006,7 @@
 # name: test_entities[sensor.home_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Hazard Message',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Hazard Message',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_hazard_message',
@@ -997,11 +1018,12 @@
 # ---
 # name: test_entities[sensor.home_hazard_status-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'options': list([
+      <SensorEntityCapabilityAttribute.OPTIONS: 'options'>: list([
         'no_hazards',
         'hazard_detected',
         'reviewed_not_fire',
@@ -1041,9 +1063,9 @@
 # name: test_entities[sensor.home_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'enum',
-      'friendly_name': 'Home Hazard Status',
-      'options': list([
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'enum',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Hazard Status',
+      <SensorEntityCapabilityAttribute.OPTIONS: 'options'>: list([
         'no_hazards',
         'hazard_detected',
         'reviewed_not_fire',
@@ -1060,8 +1082,9 @@
 # ---
 # name: test_entities[sensor.home_last_brownout-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -1097,8 +1120,8 @@
 # name: test_entities[sensor.home_last_brownout-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'timestamp',
-      'friendly_name': 'Home Last brownout',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Last brownout',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_last_brownout',
@@ -1110,8 +1133,9 @@
 # ---
 # name: test_entities[sensor.home_last_weather_alert-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -1147,8 +1171,8 @@
 # name: test_entities[sensor.home_last_weather_alert-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'timestamp',
-      'friendly_name': 'Home Last weather alert',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Last weather alert',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_last_weather_alert',
@@ -1160,8 +1184,9 @@
 # ---
 # name: test_entities[sensor.home_serial_number-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -1196,8 +1221,9 @@
 # ---
 # name: test_entities[sensor.home_subscription_start-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -1232,8 +1258,9 @@
 # ---
 # name: test_entities[sensor.home_utility_fire_hazard_message-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -1269,7 +1296,7 @@
 # name: test_entities[sensor.home_utility_fire_hazard_message-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Utility Fire Hazard Message',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Utility Fire Hazard Message',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_utility_fire_hazard_message',
@@ -1281,8 +1308,9 @@
 # ---
 # name: test_entities[sensor.home_utility_fire_hazard_status-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
@@ -1318,7 +1346,7 @@
 # name: test_entities[sensor.home_utility_fire_hazard_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Home Utility Fire Hazard Status',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Utility Fire Hazard Status',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_utility_fire_hazard_status',
@@ -1330,11 +1358,12 @@
 # ---
 # name: test_entities[sensor.home_voltage_high-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1372,10 +1401,10 @@
 # name: test_entities[sensor.home_voltage_high-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'voltage',
-      'friendly_name': 'Home Voltage high',
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
-      'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'voltage',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Voltage high',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfElectricPotential.VOLT: 'V'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_voltage_high',
@@ -1387,11 +1416,12 @@
 # ---
 # name: test_entities[sensor.home_voltage_low-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
     'config_subentry_id': <ANY>,
@@ -1429,10 +1459,10 @@
 # name: test_entities[sensor.home_voltage_low-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'voltage',
-      'friendly_name': 'Home Voltage low',
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
-      'unit_of_measurement': <UnitOfElectricPotential.VOLT: 'V'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'voltage',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Home Voltage low',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfElectricPotential.VOLT: 'V'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.home_voltage_low',
@@ -1444,8 +1474,9 @@
 # ---
 # name: test_entities[sensor.home_wifi_mac_address-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
