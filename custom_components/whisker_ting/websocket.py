@@ -224,17 +224,24 @@ class WhiskerWebSocket:
             return
 
         if protocol.completion_message(message):
-            # The server only sends a Completion for InitializeStreaming
-            # when the subscription is NOT accepted (error or result:null);
-            # an accepted stream never gets one. This state has been
-            # observed to clear server-side over time, so the connection is
-            # torn down and the manager keeps retrying with capped backoff
-            # rather than holding a known-dead subscription open.
             error = protocol.completion_error(message)
+            if error is None:
+                # ResultKind 2 (void) is the NORMAL acknowledgement that the
+                # blocking InitializeStreaming invocation returned. Voltage
+                # arrives afterwards as separate server-to-client invocations
+                # on this same socket, so the connection must stay open.
+                # Treating this as a rejection tore the socket down before
+                # the first sample could arrive (regression in 3.0.0-3.0.3).
+                _LOGGER.debug(
+                    "InitializeStreaming acknowledged for station %s",
+                    self._station_id,
+                )
+                return
+            # Only ResultKind 1 carries an error — a real rejection.
             _LOGGER.warning(
-                "Streaming subscription rejected for station %s%s",
+                "Streaming subscription rejected for station %s: %s",
                 self._station_id,
-                f": {error}" if error else " (silent result:null)",
+                error,
             )
             self._stream_rejected.set()
             self._connected = False  # receive loop exits and notifies

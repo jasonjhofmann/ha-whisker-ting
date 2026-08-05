@@ -261,9 +261,13 @@ def decode_voltage_update(message: list[Any]) -> VoltageData | None:
 def completion_message(message: list[Any]) -> bool:
     """Return True if the hub message is a Completion (message type 3).
 
-    Ting's server only sends a Completion for ``InitializeStreaming`` when
-    the subscription is *not* accepted (either an error or a silent
-    ``result: null``); an accepted stream never receives one.
+    A Completion acknowledges a blocking invocation. ``ResultKind 2``
+    (void, no result field) is a NORMAL success acknowledgement — Ting
+    sends one for every ``InitializeStreaming`` call, and the voltage
+    stream follows on the same connection afterwards. Only ``ResultKind
+    1`` carries an error and means the subscription was refused. Callers
+    must use :func:`completion_error` to tell the two apart before
+    treating a Completion as a failure.
     """
     return bool(message) and message[0] == MSG_TYPE_COMPLETION
 

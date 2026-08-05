@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.1.0
+
+### Fixed
+
+- **Regression introduced in 3.0.0: a void Completion tore down the
+  connection.** SignalR answers the blocking `InitializeStreaming`
+  invocation with a Completion carrying `ResultKind 2` (void) — a normal
+  success acknowledgement — and the voltage stream then arrives as
+  separate server-to-client invocations on the same socket. 3.0.0-3.0.3
+  treated any Completion as a rejection and closed the socket within
+  milliseconds of subscribing, so no sample could ever be delivered. Only
+  `ResultKind 1` (which carries an error) is a rejection now. Guarded by
+  a RED/GREEN regression test.
+- Corrected the `completion_message()` docstring and the test fixture
+  that mislabelled a void acknowledgement as "the stream-rejection
+  signal" — that wrong premise is what produced the regression.
+
 ## 3.0.3
 
 ### Changed

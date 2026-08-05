@@ -19,7 +19,7 @@ from custom_components.whisker_ting.websocket import (
 )
 from homeassistant.util import dt as dt_util
 
-from .test_websocket import _HANDSHAKE_OK, _make, _Msg, completion_frame
+from .test_websocket import _HANDSHAKE_OK, _make, _Msg, error_completion_frame
 
 
 def _sample(v=120.0):
@@ -216,7 +216,7 @@ async def test_server_close_message_triggers_single_disconnect_notify():
 async def test_rejection_tears_connection_down_with_single_notify():
     handshake = _Msg(aiohttp.WSMsgType.TEXT, _HANDSHAKE_OK)
     session, _ws = _make(
-        [handshake, _Msg(aiohttp.WSMsgType.BINARY, completion_frame())]
+        [handshake, _Msg(aiohttp.WSMsgType.BINARY, error_completion_frame())]
     )
     notifies = []
     client = WhiskerWebSocket(

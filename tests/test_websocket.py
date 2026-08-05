@@ -37,9 +37,17 @@ def voltage_frame(v=120.5, peaks=5.0, hi=121.0, lo=119.0) -> bytes:
 
 
 def completion_frame() -> bytes:
-    # SignalR Completion (type 3) with result:null — the stream-rejection
-    # signal — length-prefixed as the server sends it.
+    """A void (ResultKind 2) Completion — the NORMAL invoke acknowledgement.
+
+    Ting sends this for every InitializeStreaming call; the stream follows
+    on the same socket. It is not a rejection.
+    """
     return _framed([3, {}, "1", 2, None])
+
+
+def error_completion_frame(error="not authorized") -> bytes:
+    """A ResultKind 1 Completion — a real subscription rejection."""
+    return _framed([3, {}, "1", 1, error])
 
 
 class _Msg:
@@ -184,9 +192,29 @@ async def test_undecodable_frame_does_not_kill_connection():
     assert seen[0].voltage == 122.0
 
 
+async def test_void_completion_keeps_connection_open():
+    """Regression (3.0.0-3.0.3): a void ack must not tear the socket down.
+
+    The voltage stream arrives AFTER this acknowledgement on the same
+    connection; hanging up on it made data delivery impossible.
+    """
+    handshake = _Msg(aiohttp.WSMsgType.TEXT, _HANDSHAKE_OK)
+    ack = _Msg(aiohttp.WSMsgType.BINARY, completion_frame())
+    good = _Msg(aiohttp.WSMsgType.BINARY, voltage_frame(v=121.5))
+    session, _ws = _make([handshake, ack, good])
+    seen = []
+    client = _client(session, on_voltage_update=lambda sid, d: seen.append(d))
+    assert await client.connect() is True
+    assert await client.wait_for_data(timeout=1.0) is True
+    assert client.connected is True
+    assert client.stream_rejected is False
+    assert seen[0].voltage == 121.5
+    await client.disconnect()
+
+
 async def test_rejection_fast_fail():
     handshake = _Msg(aiohttp.WSMsgType.TEXT, _HANDSHAKE_OK)
-    rej = _Msg(aiohttp.WSMsgType.BINARY, completion_frame())
+    rej = _Msg(aiohttp.WSMsgType.BINARY, error_completion_frame())
     session, _ws = _make([handshake, rej])
     client = _client(session)
     assert await client.connect() is True
