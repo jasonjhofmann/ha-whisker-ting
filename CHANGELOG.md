@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.2.0
+
+### Fixed
+
+- **The keepalive interval gates the voltage stream. This is the fix for
+  "subscription accepted but no data ever arrives."** The hub answers
+  `InitializeStreaming` with a void Completion regardless, but only fans
+  out `updateComboBinaryData` to connections that ping frequently. Every
+  fork of this integration has pinged every 15 seconds; the official app
+  uses `keepAliveIntervalInMilliseconds = 3000`. `PING_INTERVAL` is now 3
+  seconds, matching the app.
+- Verified by simultaneous A/B against the live hub on one account
+  (2026-08-05): a 15-second-ping connection received 0 samples in 60 s
+  and recycled, while a concurrently-subscribed 3-second-ping connection
+  received 360 samples in 90 s (a clean 4 Hz, first sample at t=0.3 s).
+
 ## 3.1.1
 
 ### Fixed

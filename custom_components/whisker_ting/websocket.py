@@ -42,10 +42,16 @@ DEFAULT_PUBLISH_INTERVAL = 5.0
 class WhiskerWebSocket:
     """WebSocket client for one station on the Whisker Ting SignalR hub."""
 
-    # Consider data stale if no update in 30 seconds (normally ~4 Hz)
+    # Consider data stale if no update in 30 seconds (normally ~4 Hz).
+    # The official app uses serverTimeoutInMilliseconds = 20000.
     STALE_DATA_THRESHOLD = 30
-    # Keepalive ping cadence (seconds)
-    PING_INTERVAL = 15
+    # Keepalive ping cadence (seconds). MUST match the official app's
+    # keepAliveIntervalInMilliseconds = 3000 (chunk-GBDILMAT.js). This is
+    # load-bearing, not cosmetic: with a 15 s cadence the hub accepts the
+    # subscription (void Completion) but never fans out the voltage stream.
+    # Verified by simultaneous A/B on one account — 15 s: 0 samples/60 s;
+    # 3 s: 360 samples/90 s (4 Hz).
+    PING_INTERVAL = 3
     # A connection that has never produced data gets this long before the
     # stale loop recycles it. Covers "accepted but silently unauthorized"
     # subscriptions, which the server has been observed to clear over time.

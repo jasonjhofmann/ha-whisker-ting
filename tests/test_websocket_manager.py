@@ -314,3 +314,14 @@ async def test_repeated_rejections_slow_the_backoff(monkeypatch):
     # ...and received data resets the slowdown
     manager._handle_voltage_update("TG-0001", _sample())
     assert manager._rejection_counts["TG-0001"] == 0
+
+
+async def test_ping_cadence_matches_the_app():
+    """The 3 s keepalive is load-bearing, not cosmetic.
+
+    With a 15 s cadence the hub acknowledges the subscription but never
+    streams; at 3 s (the official app's keepAliveIntervalInMilliseconds)
+    voltage flows at 4 Hz. Verified by simultaneous A/B against the live
+    hub on 2026-08-05.
+    """
+    assert WhiskerWebSocket.PING_INTERVAL == 3
