@@ -1,4 +1,10 @@
-"""Tests for the coordinator's station-id candidate probe."""
+"""Station-id handling: the serial is authoritative, probing is retired.
+
+The hub answers every InitializeStreaming with a void Completion no matter
+what StationId is supplied, so the old candidate-rotation probe could never
+discriminate — it only ever subscribed to the wrong station. These tests
+lock in that the serial is used and that no probing happens.
+"""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -33,78 +39,56 @@ def _coordinator(hass: HomeAssistant, entry: MockConfigEntry, manager):
     return coordinator
 
 
-def _manager(wait_results):
-    """A fake WS manager whose wait_for_data pops scripted results."""
+def _manager():
     manager = MagicMock()
-    results = list(wait_results)
-    manager.wait_for_data = AsyncMock(side_effect=lambda *a, **k: results.pop(0))
+    manager.wait_for_data = AsyncMock(return_value=False)
     manager.connect_device = AsyncMock(return_value=True)
     manager.disconnect_device = AsyncMock()
     return manager
 
 
-async def test_probe_current_station_works(hass: HomeAssistant):
-    """If the already-connected station produces data, persist it and stop."""
+async def test_connect_uses_device_serial_as_station_id(hass: HomeAssistant):
+    """StationId must be the sensor serial, matching the official app."""
     entry = MockConfigEntry(domain=DOMAIN)
     entry.add_to_hass(hass)
-    manager = _manager([True])
+    manager = _manager()
     coordinator = _coordinator(hass, entry, manager)
     device = _device()
 
-    await coordinator._probe_station_id(device)
+    await coordinator._connect_websocket({"TG-0001": device})
 
-    assert coordinator._discovered_station_ids == {"TG-0001": "TG-0001"}
-    assert entry.options[CONF_STATION_IDS] == {"TG-0001": "TG-0001"}
-    manager.connect_device.assert_not_called()
-    manager.disconnect_device.assert_not_called()
-
-
-async def test_probe_rotates_to_site_id(hass: HomeAssistant):
-    """Serial silent -> site id produces data -> persisted and adopted."""
-    entry = MockConfigEntry(domain=DOMAIN)
-    entry.add_to_hass(hass)
-    # serial times out, site-id candidate delivers
-    manager = _manager([False, True])
-    coordinator = _coordinator(hass, entry, manager)
-    device = _device()
-
-    await coordinator._probe_station_id(device)
-
-    assert device.station_id == "555"
-    assert coordinator._discovered_station_ids == {"TG-0001": "555"}
-    assert entry.options[CONF_STATION_IDS] == {"TG-0001": "555"}
-    manager.disconnect_device.assert_awaited_with("TG-0001")
+    assert device.station_id == "TG-0001"
     manager.connect_device.assert_awaited_with(
-        api_key="key", user_id=7, station_id="555"
+        api_key="key", user_id=7, station_id="TG-0001"
     )
 
 
-async def test_probe_all_candidates_fail_falls_back_to_serial(hass: HomeAssistant):
-    """No candidate works: nothing persisted, serial reconnected for backoff."""
+async def test_no_probe_is_started_when_stream_is_silent(hass: HomeAssistant):
+    """A silent stream must NOT trigger station-id rotation.
+
+    Regression: rotation subscribed to site/group ids (e.g. '1118490')
+    because a void Completion looks identical for every candidate.
+    """
     entry = MockConfigEntry(domain=DOMAIN)
     entry.add_to_hass(hass)
-    # current + site + soc + group all silent
-    manager = _manager([False, False, False, False])
+    manager = _manager()
     coordinator = _coordinator(hass, entry, manager)
     device = _device()
 
-    await coordinator._probe_station_id(device)
+    coordinator._maybe_start_station_probe(device)
 
-    assert coordinator._discovered_station_ids == {}
-    assert CONF_STATION_IDS not in entry.options
+    assert coordinator._probe_tasks == {}
     assert device.station_id == "TG-0001"
-    # The last probed candidate was torn down and the serial reconnected so
-    # the manager's capped backoff keeps retrying.
-    assert manager.connect_device.await_args.kwargs["station_id"] == "TG-0001"
+    manager.connect_device.assert_not_called()
 
 
-async def test_connect_prefers_persisted_station_id(hass: HomeAssistant):
-    """A previously discovered station id is used on the next connect."""
+async def test_persisted_station_id_is_still_honored(hass: HomeAssistant):
+    """A station id persisted by an older version keeps working."""
     entry = MockConfigEntry(
         domain=DOMAIN, options={CONF_STATION_IDS: {"TG-0001": "555"}}
     )
     entry.add_to_hass(hass)
-    manager = _manager([])
+    manager = _manager()
     coordinator = _coordinator(hass, entry, manager)
     device = _device()
 

@@ -12,7 +12,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.util import dt as dt_util
 
 from .api import (
     DeviceState,
@@ -186,90 +185,17 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                     )
 
     def _maybe_start_station_probe(self, device_state: DeviceState) -> None:
-        """Probe alternate station ids in the background if none has worked.
+        """Do nothing: station-id probing cannot discriminate candidates.
 
-        Some accounts' streaming subscriptions reject the device serial and
-        require a different identifier (site id, SoC serial, or group id).
-        The probe rotates candidates, and the first one that produces
-        voltage data is persisted to config-entry options so restarts
-        connect directly.
+        The hub answers EVERY InitializeStreaming with a void Completion
+        regardless of the StationId supplied, so "no data yet" never
+        distinguished a wrong station id from an inactive stream. In
+        practice the probe rotated onto site/group ids and subscribed to
+        the wrong station. The official app uses the sensor serial as
+        StationId (chunk-GBDILMAT.js: StationId = sensorSerial); so do we.
+        Kept as a no-op so persisted options and callers stay valid.
         """
-        serial = device_state.serial_number
-        if serial in self._discovered_station_ids:
-            return  # already probed successfully
-        task = self._probe_tasks.get(serial)
-        if task and not task.done():
-            return  # probe already running
-        cooldown = self._probe_cooldown_until.get(serial)
-        if cooldown and dt_util.utcnow() < cooldown:
-            return  # a full rotation just failed; backoff is retrying
-        self._probe_tasks[serial] = self.hass.async_create_background_task(
-            self._probe_station_id(device_state),
-            name=f"whisker_ting station probe {serial}",
-        )
-
-    async def _probe_station_id(self, device_state: DeviceState) -> None:
-        """Try each candidate station id until one produces voltage data."""
-        serial = device_state.serial_number
-        api_key = self.client.api_key
-        user_id = self.client.user_id
-        if not api_key or not user_id or not self._ws_manager:
-            return
-
-        # Give the currently connected candidate (normally the serial) the
-        # full probe window first — the 5 s startup wait is often too short.
-        current = device_state.station_id
-        if current and await self._ws_manager.wait_for_data(
-            current, timeout=_PROBE_TIMEOUT
-        ):
-            self._persist_station_id(serial, current)
-            return
-
-        for candidate_fn in _STATION_ID_CANDIDATES:
-            candidate = candidate_fn(device_state)
-            if not candidate or candidate == current:
-                continue
-
-            _LOGGER.debug(
-                "Probing station id candidate '%s' for device %s",
-                candidate,
-                serial,
-            )
-            if current:
-                await self._ws_manager.disconnect_device(current)
-            connected = await self._ws_manager.connect_device(
-                api_key=api_key, user_id=user_id, station_id=candidate
-            )
-            current = candidate if connected else None
-            if not connected:
-                continue
-
-            device_state.station_id = candidate
-            if await self._ws_manager.wait_for_data(candidate, timeout=_PROBE_TIMEOUT):
-                _LOGGER.info(
-                    "Discovered working station id '%s' for device %s",
-                    candidate,
-                    serial,
-                )
-                self._persist_station_id(serial, candidate)
-                return
-
-        # No candidate produced data. Fall back to the serial so the
-        # manager's capped backoff keeps retrying — the server-side
-        # streaming-authorization state has been observed to clear later.
-        _LOGGER.warning(
-            "No station id candidate produced voltage data for device %s; "
-            "will keep retrying with '%s'",
-            serial,
-            device_state.serial_number,
-        )
-        if current and current != device_state.serial_number:
-            await self._ws_manager.disconnect_device(current)
-            await self._ws_manager.connect_device(
-                api_key=api_key, user_id=user_id, station_id=device_state.serial_number
-            )
-        device_state.station_id = device_state.serial_number
-        self._probe_cooldown_until[serial] = dt_util.utcnow() + timedelta(hours=4)
+        return
 
     def _persist_station_id(self, serial: str, station_id: str) -> None:
         """Persist a discovered station id to config-entry options."""
@@ -352,24 +278,12 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                                     voltage_lo=voltage_data.voltage_lo,
                                     average_peaks_max=voltage_data.average_peaks_max,
                                 )
-                            else:
-                                # No data on the default station id yet —
-                                # probe the alternates in the background.
-                                self._maybe_start_station_probe(device_state)
-            elif self._ws_manager:
-                # Already connected: re-arm the probe (cooldown-guarded) for
-                # any station that has never produced data — a silently
-                # unauthorized subscription, or a probe that previously
-                # failed and may succeed now that the server-side state has
-                # cleared.
-                for device_state in data.values():
-                    if (
-                        device_state.station_id
-                        and self._ws_manager.get_voltage_data(device_state.station_id)
-                        is None
-                    ):
-                        self._maybe_start_station_probe(device_state)
-
+                            # No probe here: every candidate station id
+                            # returns the same void acknowledgement, so the
+                            # probe cannot discriminate — it only produced
+                            # subscriptions to the wrong station. The device
+                            # serial is the correct StationId (matches the
+                            # official app: StationId = sensor serial).
             # Fetch notifications (best-effort; users poll stays authoritative).
             try:
                 notifications = await self.client.get_notifications()

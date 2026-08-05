@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.1
+
+### Fixed
+
+- **Retired station-id probing — it was subscribing to the wrong station.**
+  The hub answers every `InitializeStreaming` with a void Completion no
+  matter which StationId is supplied, so "no data yet" never
+  distinguished a wrong station id from an inactive stream. In practice
+  the probe rotated onto site/group ids (e.g. `1118490`) and subscribed
+  there. The official app uses the sensor serial as StationId
+  (`chunk-GBDILMAT.js`: `StationId: sensorSerial`); so do we, always.
+  Station ids persisted by earlier versions are still honored.
+
 ## 3.1.0
 
 ### Fixed
