@@ -2,19 +2,28 @@
 
 ## 3.2.0
 
-### Fixed
+### Changed
 
-- **The keepalive interval gates the voltage stream. This is the fix for
-  "subscription accepted but no data ever arrives."** The hub answers
-  `InitializeStreaming` with a void Completion regardless, but only fans
-  out `updateComboBinaryData` to connections that ping frequently. Every
-  fork of this integration has pinged every 15 seconds; the official app
-  uses `keepAliveIntervalInMilliseconds = 3000`. `PING_INTERVAL` is now 3
-  seconds, matching the app.
-- Verified by simultaneous A/B against the live hub on one account
-  (2026-08-05): a 15-second-ping connection received 0 samples in 60 s
-  and recycled, while a concurrently-subscribed 3-second-ping connection
-  received 360 samples in 90 s (a clean 4 Hz, first sample at t=0.3 s).
+- `PING_INTERVAL` is now 3 seconds, matching the official app's
+  `keepAliveIntervalInMilliseconds = 3000`. **This is app parity, not a
+  fix.** It was released as the fix for "subscription accepted but no
+  data arrives" on the strength of one simultaneous A/B, and that was
+  wrong: the same 3-second-ping probe that received 360 samples at 02:00
+  received 0 samples at 02:08 with nothing changed on our side. The
+  cadence is retained because it matches the reference client, but it
+  does not control stream delivery.
+
+### Known issue (unresolved)
+
+- The voltage stream is delivered only while the official Ting mobile app
+  is actively running in the foreground. With the app foregrounded, any
+  subscriber receives a clean 4 Hz stream (600 samples in 150 s,
+  measured). With the app backgrounded or closed, the hub still
+  acknowledges `InitializeStreaming` with a void Completion but never
+  fans out data, on every client configuration tested — including the
+  exact encoding that ran for 40 days before 2026-08-03. Hazard,
+  notification and diagnostic entities are unaffected; they use the REST
+  API and remain fully functional.
 
 ## 3.1.1
 
