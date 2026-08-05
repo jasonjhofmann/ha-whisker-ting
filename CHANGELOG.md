@@ -19,25 +19,32 @@ and referred to a station-id probe that had already been removed.
 
 ## 3.3.0
 
-### Fixed
+### Changed
 
 - **Release the station's subscription before subscribing, and on every
-  disconnect. This is the fix for "subscription accepted but no data
-  ever arrives."** A subscription the server still holds for a station
-  makes it acknowledge a new `InitializeStreaming` with a void Completion
-  and then never fan out the stream to that connection. The official app
-  pairs `InitializeStreaming` with `UnInitializeStreaming`
-  (`chunk-GBDILMAT.js`: `invokeStreamingMethod` /
-  `unInvokeStreamingMethod`); no third-party client has ever called the
-  teardown, so any dropped connection leaked a registration that blocked
-  every later subscribe for that station.
-- `connect()` now sends `UnInitializeStreaming` immediately before
-  `InitializeStreaming` (SignalR processes invocations from one
-  connection in order), and `disconnect()` plus both stale/grace recycle
-  paths release the subscription before the socket goes away.
-- Verified live, back to back under identical conditions: subscribe-only
-  received 0 samples in 90 s; release-then-subscribe delivered voltage in
-  about 4 seconds.
+  disconnect.** The official app does this: `connection.onreconnected`
+  calls `stopRealTimeData()` (which invokes `UnInitializeStreaming`) and
+  then re-subscribes (`chunk-GBDILMAT.js:6208-6226`). No third-party
+  client has ever called the teardown, so this brings the reconnect path
+  in line with the reference client.
+
+> **Correction (2026-08-05).** This release originally claimed the change
+> was *the* fix for "subscription accepted but no data arrives", on the
+> strength of a back-to-back comparison described as being run under
+> identical conditions. It was not a controlled comparison: the two arms
+> were different scripts with different keepalive behaviour. A proper
+> A/B/A afterwards — one script, three fresh connections, 60 s each, no
+> keepalives, the release call as the only variable — showed **no
+> difference**: 244 samples subscribe-only, 260 with the release, 258
+> subscribe-only again.
+>
+> What is supported: something server-side latched for about thirty hours
+> on one account, during which every subscribe was acknowledged and served
+> nothing across restarts, reinstalls, credential refreshes and version
+> reverts; it cleared around the time a release was first sent, and has
+> not recurred. Whether the release cleared it is unproven. The change is
+> kept because it matches the app and cannot hurt, not because it is a
+> demonstrated cure.
 
 ## 3.2.0
 
@@ -52,9 +59,14 @@ and referred to a station-id probe that had already been removed.
   cadence is retained because it matches the reference client, but it
   does not control stream delivery.
 
-### Known issue (unresolved)
+### Known issue (RESOLVED — see below)
 
-- The voltage stream is delivered only while the official Ting mobile app
+> **Superseded by 3.3.0.** This correlation did not hold. The integration
+> has since streamed continuously for 14+ hours with the app closed. The
+> app-foreground correlation was an artefact of testing during a period
+> when the stream was latched server-side; it was never a dependency.
+
+- ~~The voltage stream is delivered only while the official Ting mobile app
   is actively running in the foreground. With the app foregrounded, any
   subscriber receives a clean 4 Hz stream (600 samples in 150 s,
   measured). With the app backgrounded or closed, the hub still
@@ -62,7 +74,7 @@ and referred to a station-id probe that had already been removed.
   fans out data, on every client configuration tested — including the
   exact encoding that ran for 40 days before 2026-08-03. Hazard,
   notification and diagnostic entities are unaffected; they use the REST
-  API and remain fully functional.
+  API and remain fully functional.~~
 
 ## 3.1.1
 
