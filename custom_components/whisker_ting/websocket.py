@@ -285,12 +285,15 @@ class WhiskerWebSocket:
         if protocol.completion_message(message):
             error = protocol.completion_error(message)
             if error is None:
-                # ResultKind 2 (void) is the NORMAL acknowledgement that the
-                # blocking InitializeStreaming invocation returned. Voltage
-                # arrives afterwards as separate server-to-client invocations
-                # on this same socket, so the connection must stay open.
-                # Treating this as a rejection tore the socket down before
-                # the first sample could arrive (regression in 3.0.0-3.0.3).
+                # A Completion without an error is the NORMAL acknowledgement
+                # that the blocking InitializeStreaming invocation returned.
+                # On the wire Ting sends ResultKind 3 with a null result
+                # ([3, {}, "1", 3, None]); ResultKind 2 (void) is equally
+                # benign. Voltage arrives afterwards as separate
+                # server-to-client invocations on this same socket, so the
+                # connection must stay open. Treating this as a rejection
+                # tore the socket down before the first sample could arrive
+                # (regression in 3.0.0-3.0.3).
                 _LOGGER.debug(
                     "InitializeStreaming acknowledged for station %s",
                     self._station_id,

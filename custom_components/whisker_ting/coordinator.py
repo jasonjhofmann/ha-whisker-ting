@@ -187,7 +187,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
     def _maybe_start_station_probe(self, device_state: DeviceState) -> None:
         """Do nothing: station-id probing cannot discriminate candidates.
 
-        The hub answers EVERY InitializeStreaming with a void Completion
+        The hub answers EVERY InitializeStreaming with an error-free Completion
         regardless of the StationId supplied, so "no data yet" never
         distinguished a wrong station id from an inactive stream. In
         practice the probe rotated onto site/group ids and subscribed to

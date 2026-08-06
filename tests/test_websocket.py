@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import msgpack
+import pytest
 
 from custom_components.whisker_ting import protocol
 from custom_components.whisker_ting.websocket import WhiskerWebSocket
@@ -37,11 +38,18 @@ def voltage_frame(v=120.5, peaks=5.0, hi=121.0, lo=119.0) -> bytes:
 
 
 def completion_frame() -> bytes:
-    """A void (ResultKind 2) Completion — the NORMAL invoke acknowledgement.
+    """The Completion Ting actually sends for InitializeStreaming.
 
-    Ting sends this for every InitializeStreaming call; the stream follows
-    on the same socket. It is not a rejection.
+    Captured from the live hub on 2026-08-05:
+    ``07 95 03 80 a1 31 03 c0`` = ``[3, {}, "1", 3, None]`` — ResultKind 3
+    (non-void) with a null result. It is a success acknowledgement; the
+    stream follows on the same socket.
     """
+    return _framed([3, {}, "1", 3, None])
+
+
+def void_completion_frame() -> bytes:
+    """A ResultKind 2 (void) Completion — also benign, also not a rejection."""
     return _framed([3, {}, "1", 2, None])
 
 
@@ -195,14 +203,23 @@ async def test_undecodable_frame_does_not_kill_connection():
     assert seen[0].voltage == 122.0
 
 
-async def test_void_completion_keeps_connection_open():
-    """Regression (3.0.0-3.0.3): a void ack must not tear the socket down.
+@pytest.mark.parametrize(
+    "ack_frame",
+    [completion_frame, void_completion_frame],
+    ids=["resultkind3_null", "resultkind2_void"],
+)
+async def test_error_free_completion_keeps_connection_open(ack_frame):
+    """Regression (3.0.0-3.0.3): an error-free ack must not tear the socket down.
 
     The voltage stream arrives AFTER this acknowledgement on the same
-    connection; hanging up on it made data delivery impossible.
+    connection; hanging up on it made data delivery impossible. Both
+    ResultKind 3-with-null (what Ting actually sends) and ResultKind 2
+    (void) must be treated as success. Deploying adamjthompson/whisker_ting
+    v1.1.0 against the live hub on 2026-08-05 showed the opposite handling
+    give up on all four station-id candidates in 1.8 s.
     """
     handshake = _Msg(aiohttp.WSMsgType.TEXT, _HANDSHAKE_OK)
-    ack = _Msg(aiohttp.WSMsgType.BINARY, completion_frame())
+    ack = _Msg(aiohttp.WSMsgType.BINARY, ack_frame())
     good = _Msg(aiohttp.WSMsgType.BINARY, voltage_frame(v=121.5))
     session, _ws = _make([handshake, ack, good])
     seen = []

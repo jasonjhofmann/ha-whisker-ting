@@ -28,10 +28,12 @@ Two further behaviours of Ting's hub, established empirically against the
 live service and cross-checked against the official app's bundle:
 
 - ``InitializeStreaming`` is a blocking invocation, so the server answers
-  it with a Completion of ``ResultKind 2`` (void). That is a SUCCESS
-  acknowledgement; voltage arrives afterwards as separate
-  server-to-client invocations. Only ``ResultKind 1`` carries an error.
-  See :func:`completion_message` / :func:`completion_error`.
+  it with a Completion. Observed on the wire (2026-08-05), that frame is
+  ``07 95 03 80 a1 31 03 c0`` = ``[3, {}, "1", 3, None]`` — ResultKind 3
+  (non-void) carrying a ``null`` result, NOT ResultKind 2 (void). Either
+  way it is a SUCCESS acknowledgement: voltage arrives afterwards as
+  separate server-to-client invocations. Only ``ResultKind 1`` carries an
+  error. See :func:`completion_message` / :func:`completion_error`.
 - The hub holds one subscription per station and does not release it
   implicitly when a connection drops. A leaked registration makes every
   later subscribe for that station return the same void acknowledgement
@@ -276,13 +278,14 @@ def decode_voltage_update(message: list[Any]) -> VoltageData | None:
 def completion_message(message: list[Any]) -> bool:
     """Return True if the hub message is a Completion (message type 3).
 
-    A Completion acknowledges a blocking invocation. ``ResultKind 2``
-    (void, no result field) is a NORMAL success acknowledgement — Ting
-    sends one for every ``InitializeStreaming`` call, and the voltage
-    stream follows on the same connection afterwards. Only ``ResultKind
-    1`` carries an error and means the subscription was refused. Callers
-    must use :func:`completion_error` to tell the two apart before
-    treating a Completion as a failure.
+    A Completion acknowledges a blocking invocation. Ting sends one for
+    every ``InitializeStreaming`` call and the voltage stream follows on
+    the same connection afterwards, so a Completion is NOT by itself a
+    failure. The observed frame is ResultKind 3 (non-void) with a
+    ``null`` result; ResultKind 2 (void) is equally benign. Only
+    ``ResultKind 1`` carries an error and means the subscription was
+    refused. Callers must use :func:`completion_error` to tell them apart
+    before treating a Completion as a failure.
     """
     return bool(message) and message[0] == MSG_TYPE_COMPLETION
 

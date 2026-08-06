@@ -219,13 +219,16 @@ one of them wrong:
    `{1: [...]}` MessagePack map with no prefix; the server dropped such
    connections about 70 ms after the first keepalive ping, producing an
    endless reconnect loop.
-2. **A void Completion is a success acknowledgement, not a rejection.**
+2. **The Completion answering `InitializeStreaming` is a success acknowledgement, not a rejection.**
    `InitializeStreaming` is a blocking invocation, so the server answers
-   it with a Completion carrying `ResultKind 2` (void). Voltage arrives
+   it with a Completion. On the wire that frame is `[3, {}, "1", 3, None]`
+   — ResultKind 3 (non-void) with a `null` result; ResultKind 2 (void) is
+   equally benign. Voltage arrives
    *afterwards*, as separate server-to-client invocations on the same
    socket. Only `ResultKind 1` carries an error and means the
-   subscription was refused. Closing the connection on a void Completion
-   makes data delivery impossible.
+   subscription was refused. Closing the connection on an error-free
+   Completion makes data delivery impossible — this is the single defect
+   that has been observed to break a fork outright.
 3. **Release the subscription before subscribing.** The official app pairs
    the two calls — `connection.onreconnected` invokes
    `UnInitializeStreaming` and then re-subscribes

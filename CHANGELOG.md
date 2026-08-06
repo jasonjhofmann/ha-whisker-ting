@@ -1,5 +1,35 @@
 # Changelog
 
+## 3.3.2
+
+Corrections from deploying the other forks against the live hub and
+capturing the actual wire traffic (2026-08-05). No behaviour change.
+
+### Fixed
+
+- **The Completion frame was documented wrong.** Everything here described
+  it as `ResultKind 2` (void). The frame Ting actually sends is
+  `07 95 03 80 a1 31 03 c0` = `[3, {}, "1", 3, None]` — ResultKind 3
+  (non-void) with a `null` result. The code was always correct (only
+  ResultKind 1 is treated as an error) but the test fixture asserted a
+  frame shape the server never sends. The fixture now uses the captured
+  frame, and the regression test is parametrized over both ResultKind 3
+  and ResultKind 2 so either remains a success.
+- Corrected the same claim in the README, the `protocol.py` and
+  `websocket.py` docstrings, and the coordinator comment.
+
+### Note on the framing requirement
+
+Deploying each fork against a free station showed the SignalR framing
+defect does not currently prevent streaming: `billda/ha-ting-fire` v2.1.0
+(unframed) delivered 824 samples in 3m19s with zero disconnects, and this
+project's own v1.2.0 (unframed, no auth header) delivered 795 with zero
+disconnects and zero stale events — despite that build having produced a
+continuous reconnect loop in production for forty days. The spec-compliant
+framing is retained as correct, but its historical impact could not be
+reproduced. The one defect observed to break a fork outright is treating
+the Completion as a rejection.
+
 ## 3.3.1
 
 Documentation only; no functional change from 3.3.0. Released so the
