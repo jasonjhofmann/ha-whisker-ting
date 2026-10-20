@@ -1,5 +1,95 @@
 # Changelog
 
+## 3.4.0
+
+First release of the consolidated 3.x line from
+[simplytoast1/ha-whisker-ting](https://github.com/simplytoast1/ha-whisker-ting).
+HACS users upgrading from 1.0.x get everything in 3.0.0 through 3.3.3 below,
+plus the following. Addresses the reconnect-storm and recorder-flood reports
+in simplytoast1/ha-whisker-ting#1 and aidenmitchell/ha-whisker-ting#4 and #5,
+and the remaining items of the simplytoast1/ha-whisker-ting#2 security review.
+
+### Security
+
+- **The Ting password is no longer stored.** New and reauthenticated config
+  entries keep a Cognito refresh token instead. Existing entries are
+  converted after their first successful update, so a failed upgrade can
+  still recover with the stored password. An invalid or expired refresh token
+  starts Home Assistant's normal reauthentication flow, and a rotated refresh
+  token is saved automatically.
+- Cognito failures no longer put response bodies, which may contain sensitive
+  details, into exceptions or debug logs. HTTP status codes and the friendly
+  invalid-credential classification are kept. The same now applies to Ting
+  API errors, whose messages carry only the endpoint and status code.
+- Cognito throttling and service outages stay retryable instead of being
+  misread as expired credentials and forcing reauthentication.
+
+### Fixed
+
+- **A hung connection could stall the hazard poll for minutes.** WebSocket
+  connects are now capped at 30 seconds, and every Ting API and Cognito
+  request at 30 seconds, instead of the 5 minute default of Home Assistant's
+  shared HTTP session. A timeout is reported as a retryable connection error.
+- **A device whose first stream connect failed was never retried.** On
+  multi-device accounts the first device to connect stopped attempts for the
+  rest. The WebSocket manager now owns every retry, including the first, and
+  devices connect concurrently so several unreachable streams can't stack
+  their timeouts onto setup. Setup no longer waits for data from a stream
+  that failed to open.
+- **Reconnects can no longer leave a second live connection behind.** The
+  reconnect backoff is a single loop per station, `connect_device` defers to
+  a reconnect already in flight, and installing a connection tears down any
+  other instance still registered for that station. Together with the
+  identity-aware disconnect handling from 3.0.0, each station has at most one
+  socket streaming into Home Assistant.
+- **Voltage and Connectivity entities could show a live value for minutes
+  after the stream dropped.** Availability was only re-checked on the next
+  publish or REST poll (up to the scan interval, which can be an hour). A
+  dropped stream now refreshes entity availability immediately, and the
+  voltage sensors require an open connection as well as a recent sample.
+- **Station ids stored by the retired 3.0.x probe overrode the serial.** That
+  probe could persist a site or group id as the `StationId`, subscribing to
+  the wrong station. The config-entry migration now removes those stored ids
+  and the sensor serial is always used. The unused probe code is gone.
+- **Null nested objects in the Ting API response failed the whole poll.**
+  `fireHazardStatus`, its EFH/UFH children, `group` and `sites` are parsed
+  null-tolerantly, malformed list entries are skipped, and a non-JSON 200 is
+  a clean API error.
+
+### Added
+
+- The first voltage sample on each connection logs the payload's field names
+  at debug level, so fields that are not decoded yet (for example the total
+  harmonic distortion requested in jasonjhofmann/ha-whisker-ting#2) can be
+  identified without a packet capture. The README has a new "Enabling debug
+  logs" section.
+- A one-click HACS repository button and a prominent unofficial-safety
+  warning in the README.
+- Regression tests for all of the above, plus credential migration,
+  redaction, refresh-token-only startup and rotated-token persistence.
+
+### Changed
+
+- Merged jasonjhofmann/ha-whisker-ting 3.3.3 (README accuracy fixes and the
+  HACS default-list conflict with fourmajor's `whisker_ting`). The install
+  instructions, badges, manifest `documentation` and `issue_tracker` now
+  point at this repository.
+- Updated GitHub Actions workflows to `actions/checkout@v6`.
+
+### Integration notes
+
+- The current branch already contained or superseded the fourmajor and
+  adamjthompson forks' SignalR framing, invocation, keepalive, voltage
+  decoding, nested payload, API-key handling, Completion-frame, reconnect, and
+  task-lifecycle changes.
+- Corrected the old claim that `x-wl-api-key` authenticates the WebSocket
+  upgrade or matches the official app's traffic. The API key authenticates the
+  `InitializeStreaming` invocation; the extra upgrade header is retained as
+  inert but harmless.
+- Deliberately did not restore station-ID probing: the live hub acknowledges an
+  invalid station ID, so probing can silently subscribe to the wrong station.
+  The sensor serial remains the verified station ID.
+
 ## 3.3.3
 
 Documentation only; no behaviour change.

@@ -16,7 +16,7 @@ from pytest_homeassistant_custom_component.syrupy import (
 from custom_components.whisker_ting.api import WhiskerApiClient
 from custom_components.whisker_ting.const import DOMAIN
 
-from .const import TEST_USER_ID, TEST_USERNAME, USER_INPUT
+from .const import TEST_REFRESH_TOKEN, TEST_USER_ID, TEST_USERNAME, USER_INPUT
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -64,6 +64,7 @@ def mock_client(user_data_dict):
     client = AsyncMock(spec=WhiskerApiClient)
     client.user_id = TEST_USER_ID
     client.api_key = "fake-api-key"
+    client.refresh_token = TEST_REFRESH_TOKEN
     client.get_user_data.return_value = user
     client.get_all_device_states.return_value = {
         d.serial_number: d for d in user.devices

@@ -19,7 +19,9 @@ from .api import WhiskerApiClient, _reverse_mac
 from .const import (
     CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
+    CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
+    CONF_STATION_IDS,
     CONF_USERNAME,
     CONF_VOLTAGE_PUBLISH_INTERVAL,
     DEFAULT_ALERT_NOTIFICATIONS,
@@ -37,10 +39,51 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.EVENT, Platform.SENSOR]
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> bool:
+    """Migrate a config entry to refresh-token-capable schema version 2.
+
+    Version 1 entries retain their legacy password here. Runtime setup replaces
+    it with a refresh token only after a successful first coordinator refresh,
+    so a failed authentication cannot strand the entry without credentials.
+
+    The migration also drops station ids persisted by the retired 3.0.x
+    probe. The probe could not tell a wrong StationId from a quiet stream
+    and stored site or group ids; the sensor serial is always correct.
+    """
+    if entry.version == 2:
+        return True
+
+    if entry.version != 1:
+        _LOGGER.error(
+            "Cannot migrate Whisker Ting config entry from unsupported version %s",
+            entry.version,
+        )
+        return False
+
+    username = entry.data.get(CONF_USERNAME)
+    password = entry.data.get(CONF_PASSWORD)
+    refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
+    has_password = isinstance(password, str) and bool(password)
+    has_refresh_token = isinstance(refresh_token, str) and bool(refresh_token)
+    if (
+        not isinstance(username, str)
+        or not username
+        or not (has_password or has_refresh_token)
+    ):
+        _LOGGER.error("Cannot migrate Whisker Ting config entry with invalid data")
+        return False
+
+    options = {k: v for k, v in entry.options.items() if k != CONF_STATION_IDS}
+    hass.config_entries.async_update_entry(entry, options=options, version=2)
+    _LOGGER.info("Migrated Whisker Ting config entry schema to version 2")
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> bool:
     """Set up Whisker Ting from a config entry."""
     username = entry.data[CONF_USERNAME]
-    password = entry.data[CONF_PASSWORD]
+    password = entry.data.get(CONF_PASSWORD)
+    refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     notify_enabled = entry.options.get(
         CONF_ALERT_NOTIFICATIONS, DEFAULT_ALERT_NOTIFICATIONS
@@ -50,7 +93,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> b
     )
 
     session = async_get_clientsession(hass)
-    client = WhiskerApiClient(session, username, password)
+
+    def persist_rotated_refresh_token(rotated_refresh_token: str) -> None:
+        """Persist a refresh token Cognito rotated during a later renewal."""
+        if entry.data.get(CONF_REFRESH_TOKEN) == rotated_refresh_token:
+            return
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_REFRESH_TOKEN: rotated_refresh_token},
+        )
+
+    client = WhiskerApiClient(
+        session,
+        username,
+        password=password,
+        refresh_token=refresh_token,
+        on_refresh_token_update=persist_rotated_refresh_token,
+    )
 
     coordinator = WhiskerDataUpdateCoordinator(
         hass,
@@ -62,6 +121,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerConfigEntry) -> b
         config_entry=entry,
     )
     await coordinator.async_config_entry_first_refresh()
+
+    # Replace legacy plaintext-password storage only after the first coordinator
+    # refresh proves authentication succeeded and produced a usable refresh token.
+    # Keeping the password until this point ensures a failed upgrade remains
+    # recoverable through Home Assistant's normal retry/reauth paths.
+    if CONF_PASSWORD in entry.data and client.refresh_token:
+        new_data = {
+            **entry.data,
+            CONF_REFRESH_TOKEN: client.refresh_token,
+        }
+        new_data.pop(CONF_PASSWORD, None)
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        _LOGGER.info("Migrated Whisker Ting entry to refresh-token authentication")
 
     entry.runtime_data = coordinator
 

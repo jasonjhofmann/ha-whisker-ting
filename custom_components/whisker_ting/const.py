@@ -10,6 +10,9 @@ COGNITO_CLIENT_ID = "4akjeqt9gtl8rgg1cksunipk9u"
 # API Configuration
 API_BASE_URL = "https://api.wskr.io"
 API_USERS_ENDPOINT = "/api/v1/Users/{user_id}"
+# Per-request ceiling for the REST API and Cognito. Home Assistant's shared
+# session otherwise allows 5 minutes, long enough to stall the hazard poll.
+REQUEST_TIMEOUT = 30  # seconds
 
 # SignalR WebSocket
 SIGNALR_URL = "wss://signalr.api.wskr.io/dataHub"
@@ -36,8 +39,8 @@ CONF_REFRESH_TOKEN = "refresh_token"
 CONF_ID_TOKEN = "id_token"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_VOLTAGE_PUBLISH_INTERVAL = "voltage_publish_interval"
-# Persisted map of device serial number -> discovered working station_id,
-# written by the coordinator's station-id probe (entry options).
+# Options key written by the retired 3.0.x station-id probe. Only read by the
+# config-entry migration, which removes it.
 CONF_STATION_IDS = "station_ids"
 
 # Device types

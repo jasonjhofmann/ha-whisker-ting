@@ -1,9 +1,15 @@
 # Whisker Ting Integration for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/jasonjhofmann/ha-whisker-ting.svg)](https://github.com/jasonjhofmann/ha-whisker-ting/releases)
+[![GitHub Release](https://img.shields.io/github/release/simplytoast1/ha-whisker-ting.svg)](https://github.com/simplytoast1/ha-whisker-ting/releases)
 
 Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/) electrical-fire-safety sensor. This repository consolidates the fixes and features from every fork lineage of the original integration into one maintained codebase — a spec-compliant SignalR transport, the named-field voltage decode that ends the spurious spike misreads, alert/notification entities, multi-device support, and a full test suite. Ting plugs into an outlet and continuously monitors your home's electrical system for the arcing and power-quality problems that precede electrical fires. This integration connects to the Ting cloud service on your behalf and exposes real-time voltage readings plus electrical, utility, and power-quality hazard status as native Home Assistant entities.
+
+> [!IMPORTANT]
+> This is an unofficial, reverse-engineered integration. Keep the official Ting
+> app and Whisker Labs Fire Safety Team notifications enabled and treat them as
+> the authoritative safety system. Do not rely on Home Assistant as the sole
+> source of electrical hazard alerts.
 
 ## Features
 
@@ -21,17 +27,19 @@ Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/
 
 ### HACS (recommended)
 
-Install this repository as a HACS custom repository. The HACS default list has a different integration with the same name and the same `whisker_ting` domain ([fourmajor/ha-whisker-ting](https://github.com/fourmajor/ha-whisker-ting)). Searching HACS for "Whisker Ting" finds that one, not this one, and the two can't be installed side by side. If you have it installed, remove it in HACS first (find it in the list, open its three-dot menu, and select **Remove**).
+[![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=simplytoast1&repository=ha-whisker-ting&category=integration)
+
+Install this repository as a HACS custom repository. The HACS default list has a different integration with the same name and the same `whisker_ting` domain ([fourmajor/ha-whisker-ting](https://github.com/fourmajor/ha-whisker-ting)). Searching HACS for "Whisker Ting" finds that one, not this one, and integrations that share a domain can't be installed side by side. If you have it (or another Whisker Ting fork) installed, remove it in HACS first (find it in the list, open its three-dot menu, and select **Remove**).
 
 1. Open **HACS** in Home Assistant.
 2. Click the three-dot menu in the top right corner and select **Custom repositories**.
-3. Add `https://github.com/jasonjhofmann/ha-whisker-ting` as the repository URL, choose **Integration** as the category, and click **Add**.
-4. Find **Whisker Ting** by jasonjhofmann (not fourmajor) in HACS and click **Download**.
+3. Add `https://github.com/simplytoast1/ha-whisker-ting` as the repository URL, choose **Integration** as the category, and click **Add**.
+4. Find **Whisker Ting** by simplytoast1 (not fourmajor) in HACS and click **Download**.
 5. Restart Home Assistant.
 
 ### Manual
 
-1. Download the latest release from [GitHub](https://github.com/jasonjhofmann/ha-whisker-ting/releases), or clone the repository.
+1. Download the latest release from [GitHub](https://github.com/simplytoast1/ha-whisker-ting/releases), or clone the repository.
 2. Copy the `custom_components/whisker_ting` folder into your Home Assistant `config/custom_components/` directory.
 3. Restart Home Assistant.
 
@@ -46,7 +54,7 @@ Install this repository as a HACS custom repository. The HACS default list has a
 | **Email** | The email address for your Whisker Labs / Ting account. |
 | **Password** | The password for that account — the same credentials you use in the Ting mobile app. |
 
-These credentials are verified against the Ting cloud during setup; setup will not complete with incorrect credentials.
+These credentials are verified against the Ting cloud during setup; setup will not complete with incorrect credentials. The password is used only for that interactive login and is then replaced in Home Assistant's config entry by the Cognito refresh token returned by Ting. Existing installations migrate the same way after their first successful update.
 
 ## Options
 
@@ -193,7 +201,7 @@ action:
 
 ### Importable blueprint
 
-For the common case — notify on outage, optionally notify on restore — skip writing YAML: in Home Assistant, go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and import [`power_outage_notification.yaml`](https://github.com/jasonjhofmann/ha-whisker-ting/blob/main/blueprints/automation/whisker_ting/power_outage_notification.yaml) from this repository (or copy it into your `config/blueprints/automation/whisker_ting/` folder). It asks for your `Power outage` binary sensor and a notify target, and handles the rest.
+For the common case — notify on outage, optionally notify on restore — skip writing YAML: in Home Assistant, go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and import [`power_outage_notification.yaml`](https://github.com/simplytoast1/ha-whisker-ting/blob/main/blueprints/automation/whisker_ting/power_outage_notification.yaml) from this repository (or copy it into your `config/blueprints/automation/whisker_ting/` folder). It asks for your `Power outage` binary sensor and a notify target, and handles the rest.
 
 ### Skip automations entirely
 
@@ -257,7 +265,7 @@ This is normal. The real-time voltage sensors stay unavailable until the first s
 
 ### Voltage sensors show "Unavailable"
 
-The real-time voltage sensors depend on a live WebSocket stream. If the stream disconnects and cannot be re-established, these sensors report unavailable (rather than a frozen last value) until the stream recovers. The hazard and diagnostic sensors continue to update from the regular API poll regardless of stream state.
+The real-time voltage sensors depend on a live WebSocket stream. They report unavailable (rather than a frozen last value) as soon as the stream drops or goes quiet for 30 seconds, and become available again with the first sample after a reconnect. The Connectivity sensor follows the same rule. The integration retries a dropped stream on its own with capped backoff, so a brief unavailable gap during a reconnect is expected. The hazard and diagnostic sensors continue to update from the regular API poll regardless of stream state.
 
 ### Voltage stays "Unknown" or "Unavailable" indefinitely
 
@@ -279,6 +287,22 @@ Things that are worth trying, cheapest first:
 If it persists beyond a day, please open an issue with debug logs — the
 trigger is not understood and a second data point would help a lot.
 
+### Enabling debug logs
+
+Add this to `configuration.yaml` and restart:
+
+```yaml
+logger:
+  logs:
+    custom_components.whisker_ting: debug
+```
+
+The first voltage sample on each connection logs every field name in the
+stream payload (`payload fields: ...`). Fields the integration does not decode
+yet, such as a harmonic-distortion value, show up there. Logs never include
+your password or tokens, but check them for your email and device serials
+before posting.
+
 ### Upgrading from a pre-3.0 fork: log spam / reconnect loops
 
 Before 3.0.0, this integration (like the original and the billda lineage) sent unframed SignalR messages. In production that coincided with endless `WebSocket disconnected ... triggering reconnect` / `data stale` log lines, even while voltage values appeared to update. A 2026-08-05 retest found unframed builds streaming with no disconnects, so the spec-compliant framing is kept because it is correct, not as a proven fix (see the 3.3.2 changelog entry). The fourmajor, adamjthompson, and amitcpatel forks already framed their messages. Versions 3.0.0 to 3.0.3 also closed the connection on the server's acknowledgement, which 3.1.0 fixed. On a current version, one `Connected to SignalR hub` line per device and then silence is the healthy state.
@@ -286,6 +310,8 @@ Before 3.0.0, this integration (like the original and the billda lineage) sent u
 ### Authentication errors
 
 Ensure you're using the same email and password you use in the Whisker Labs / Ting mobile app. If your password has changed, Home Assistant will prompt you to reauthenticate the integration; repeated errors after reauthenticating usually mean the credentials themselves are incorrect.
+
+When sharing logs or asking for help, never include your password, API key, or authentication tokens.
 
 ## Credits
 
@@ -295,11 +321,11 @@ This codebase consolidates the work of the entire fork family:
 
 - **Aiden Mitchell / simplytoast1** — the original integration ([simplytoast1/ha-whisker-ting](https://github.com/simplytoast1/ha-whisker-ting)).
 - **Stu Chuang Matthews (fourmajor)** — spec-compliant SignalR VarInt framing, six-field invocation encoding, framed keepalive pings, and named-field voltage decoding ([fourmajor/ha-whisker-ting](https://github.com/fourmajor/ha-whisker-ting)).
-- **Adam Thompson (adamjthompson)** — the `x-wl-api-key` upgrade-header authorization (from a capture of the official app's traffic) and nested binary-blob payload decoding ([adamjthompson/whisker_ting](https://github.com/adamjthompson/whisker_ting)). His fork also independently found the SignalR framing bug, in parallel with the diagnosis in simplytoast1#1.
+- **Adam Thompson (adamjthompson)** — identifying the API key as the `InitializeStreaming` stream-token argument, nested binary-blob payload decoding, refresh-token credential storage, and an independent diagnosis of the SignalR framing bug ([adamjthompson/whisker_ting](https://github.com/adamjthompson/whisker_ting)).
 - **Bill (billda)** — the alert feed (event entity, typed timestamp sensors, power-outage binary sensor), opt-in notifications and blueprint, multi-device site naming, redacted diagnostics, reauth flow, and the pytest test harness ([billda/ha-ting-fire](https://github.com/billda/ha-ting-fire)).
 - **Amit Patel (amitcpatel)** — the earliest independent fix of the SignalR MessagePack framing bug, on 10 June 2026, predating the rest of the family's diagnoses ([amitcpatel/ha-whisker-ting-acp](https://github.com/amitcpatel/ha-whisker-ting-acp)).
 - **calasanzio, mbedworth, marccatalano, tcsmedes** — the field debugging in [simplytoast1/ha-whisker-ting#1](https://github.com/simplytoast1/ha-whisker-ting/issues/1) that pinned the framing root cause (the millisecond-precise ping-kill capture, the credential-swap analysis, and the server-response writeups).
-- **Jason Hofmann (jasonjhofmann)** — WebSocket decode/availability hardening, update throttling, Cognito token-expiry handling, MAC-address device connections, surfaced power-quality/connectivity/subscription fields, and this consolidation.
+- **Jason Hofmann (jasonjhofmann)** — WebSocket decode/availability hardening, update throttling, Cognito token-expiry handling, MAC-address device connections, surfaced power-quality/connectivity/subscription fields, and this consolidation ([jasonjhofmann/ha-whisker-ting](https://github.com/jasonjhofmann/ha-whisker-ting)).
 
 ## License
 

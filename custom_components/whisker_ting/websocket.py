@@ -7,10 +7,11 @@ Two server behaviours dominate the design of this module, both learned
 the hard way (see ``protocol.py`` for the wire-level details):
 
 1. ``InitializeStreaming`` is answered with a Completion carrying a
-   ``null`` result (ResultKind 3), a success acknowledgement — and the voltage stream follows afterwards as
-   separate server-to-client invocations on the SAME socket. The
-   connection must therefore stay open after the acknowledgement; closing
-   it there makes data delivery impossible.
+   ``null`` result (ResultKind 3). That is a success acknowledgement: the
+   voltage stream follows afterwards as separate server-to-client
+   invocations on the SAME socket. The connection must therefore stay
+   open after the acknowledgement; closing it there makes data delivery
+   impossible.
 2. The hub holds ONE subscription per station, and it is not implicitly
    released when a connection goes away. A leaked registration causes
    every later ``InitializeStreaming`` for that station to be
@@ -21,9 +22,15 @@ the hard way (see ``protocol.py`` for the wire-level details):
    same way.
 
 Historical note: the original client sent an unframed ``{1: [...]}`` map
-instead of a length-prefixed flat array, which made the server drop every
-connection ~70 ms after the first keepalive ping — a permanent reconnect
-churn loop. That is fixed in ``protocol.py``.
+instead of a length-prefixed flat array. In production that coincided with
+a permanent reconnect churn loop, though a 2026-08-05 retest could not
+reproduce the link (see the 3.3.2 changelog). ``protocol.py`` frames every
+message per the spec because that is correct, not as a proven cure.
+
+The manager below owns every retry. Each station has at most one current
+connection; a disconnect notification from any other instance tears that
+instance down and is otherwise ignored, so reconnects cannot accumulate
+orphaned sockets that keep streaming into Home Assistant.
 """
 
 from __future__ import annotations
@@ -71,6 +78,10 @@ class WhiskerWebSocket:
     # stale loop recycles it. The recycle tears the subscription down
     # properly (UnInitializeStreaming) so the retry can re-register.
     FIRST_DATA_GRACE = 60
+    # Upper bound on the upgrade + handshake + subscribe sequence. Without
+    # it a hung upgrade could stall the caller (the first coordinator
+    # refresh, or a reconnect) for the session's 5 minute default.
+    CONNECT_TIMEOUT = 30
 
     def __init__(
         self,
@@ -115,92 +126,104 @@ class WhiskerWebSocket:
         self._message_id += 1
         return protocol.encode_invocation(str(self._message_id), method, args)
 
+    def _stream_args(self) -> list:
+        """Return the (Un)InitializeStreaming arguments for this station."""
+        return [
+            {"StationId": self._station_id, "DataElement": "ComboBinaryData"},
+            self._api_key,
+            str(self._user_id),
+        ]
+
     async def connect(self) -> bool:
         """Connect to the SignalR hub and start the streaming subscription."""
         try:
-            _LOGGER.debug("Connecting to SignalR hub: %s", SIGNALR_URL)
-
-            self._ws = await self._session.ws_connect(
-                SIGNALR_URL,
-                headers={
-                    "Origin": "ionic://localhost",
-                    # The hub also authorizes at the HTTP-upgrade level via
-                    # this header (matches the official app's traffic).
-                    "x-wl-api-key": self._api_key,
-                },
-            )
-
-            # Send protocol negotiation
-            handshake = '{"protocol":"messagepack","version":1}\x1e'
-            await self._ws.send_str(handshake)
-
-            # Validate the handshake response
-            msg = await self._ws.receive(timeout=10)
-            if msg.type not in (aiohttp.WSMsgType.BINARY, aiohttp.WSMsgType.TEXT):
-                raise SignalRProtocolError(  # noqa: TRY301 - connect() is the sole handler
-                    f"unexpected handshake response type: {msg.type.name}"
-                )
-            handshake_data = (
-                msg.data.decode("utf-8") if isinstance(msg.data, bytes) else msg.data
-            )
-            if not handshake_data.endswith("\x1e"):
-                raise SignalRProtocolError(  # noqa: TRY301 - connect() is the sole handler
-                    "unterminated SignalR handshake response"
-                )
-            handshake_result = json.loads(handshake_data[:-1])
-            if handshake_result.get("error"):
-                raise SignalRProtocolError(  # noqa: TRY301 - connect() is the sole handler
-                    f"SignalR handshake failed: {handshake_result['error']}"
-                )
-
-            init_args = [
-                {"StationId": self._station_id, "DataElement": "ComboBinaryData"},
-                self._api_key,
-                str(self._user_id),
-            ]
-
-            # Release any subscription the server still holds for this
-            # station BEFORE subscribing. A stale registration (left by any
-            # client that dropped without tearing down) makes the server
-            # acknowledge a new InitializeStreaming and then never fan out
-            # the stream to it. The official app always pairs these calls
-            # (chunk-GBDILMAT.js: invokeStreamingMethod /
-            # unInvokeStreamingMethod); no third-party client ever has.
-            # SignalR processes invocations from one connection in order
-            # (MaximumParallelInvocationsPerClient defaults to 1), so the
-            # release is guaranteed to be handled before the subscribe.
-            await self._ws.send_bytes(
-                self._encode_invocation("UnInitializeStreaming", init_args)
-            )
-
-            # Subscribe to the device stream using api_key as the token
-            init_msg = self._encode_invocation("InitializeStreaming", init_args)
-            await self._ws.send_bytes(init_msg)
-
-            self._connected = True
-            self._connect_time = dt_util.utcnow()
-            # _last_data_time intentionally stays None until real data
-            # arrives, so freshness never reflects a silent subscription.
-
-            # Start background tasks
-            self._receive_task = asyncio.create_task(self._receive_loop())
-            self._ping_task = asyncio.create_task(self._ping_loop())
-            self._stale_check_task = asyncio.create_task(self._stale_data_check_loop())
-
-            _LOGGER.info("Connected to SignalR hub for station %s", self._station_id)
-
+            async with asyncio.timeout(self.CONNECT_TIMEOUT):
+                await self._open_and_subscribe()
         except asyncio.CancelledError:
             await self._close_ws()
             raise
         except Exception as err:  # noqa: BLE001 - connect spans network I/O, the
             # protocol handshake, and encoding; any failure must resolve to False.
-            _LOGGER.error("Failed to connect to SignalR hub: %s", err)
+            _LOGGER.error(
+                "Failed to connect to SignalR hub for station %s: %s",
+                self._station_id,
+                str(err) or type(err).__name__,
+            )
             self._connected = False
             # Don't leak the socket when a post-upgrade step failed
             await self._close_ws()
             return False
-        else:
-            return True
+
+        self._connected = True
+        self._connect_time = dt_util.utcnow()
+        # _last_data_time intentionally stays None until real data
+        # arrives, so freshness never reflects a silent subscription.
+
+        # Start background tasks
+        self._receive_task = asyncio.create_task(self._receive_loop())
+        self._ping_task = asyncio.create_task(self._ping_loop())
+        self._stale_check_task = asyncio.create_task(self._stale_data_check_loop())
+
+        _LOGGER.info("Connected to SignalR hub for station %s", self._station_id)
+        return True
+
+    async def _open_and_subscribe(self) -> None:
+        """Open the socket, negotiate the protocol, and subscribe."""
+        _LOGGER.debug("Connecting to SignalR hub: %s", SIGNALR_URL)
+
+        self._ws = await self._session.ws_connect(
+            SIGNALR_URL,
+            headers={
+                "Origin": "ionic://localhost",
+                # The official Ionic app cannot add a custom WebSocket
+                # upgrade header; stream auth is the api_key argument in
+                # InitializeStreaming. Adam's latest fork retains this
+                # extra header as inert but harmless, so we do as well.
+                "x-wl-api-key": self._api_key,
+            },
+        )
+
+        # Send protocol negotiation
+        handshake = '{"protocol":"messagepack","version":1}\x1e'
+        await self._ws.send_str(handshake)
+
+        # Validate the handshake response
+        msg = await self._ws.receive(timeout=10)
+        if msg.type not in (aiohttp.WSMsgType.BINARY, aiohttp.WSMsgType.TEXT):
+            raise SignalRProtocolError(
+                f"unexpected handshake response type: {msg.type.name}"
+            )
+        handshake_data = (
+            msg.data.decode("utf-8") if isinstance(msg.data, bytes) else msg.data
+        )
+        if not handshake_data.endswith("\x1e"):
+            raise SignalRProtocolError("unterminated SignalR handshake response")
+        handshake_result = json.loads(handshake_data[:-1])
+        if handshake_result.get("error"):
+            raise SignalRProtocolError(
+                f"SignalR handshake failed: {handshake_result['error']}"
+            )
+
+        init_args = self._stream_args()
+
+        # Release any subscription the server still holds for this
+        # station BEFORE subscribing. A stale registration (left by any
+        # client that dropped without tearing down) makes the server
+        # acknowledge a new InitializeStreaming and then never fan out
+        # the stream to it. The official app always pairs these calls
+        # (chunk-GBDILMAT.js: invokeStreamingMethod /
+        # unInvokeStreamingMethod); no third-party client ever has.
+        # SignalR processes invocations from one connection in order
+        # (MaximumParallelInvocationsPerClient defaults to 1), so the
+        # release is guaranteed to be handled before the subscribe.
+        await self._ws.send_bytes(
+            self._encode_invocation("UnInitializeStreaming", init_args)
+        )
+
+        # Subscribe to the device stream using api_key as the token
+        await self._ws.send_bytes(
+            self._encode_invocation("InitializeStreaming", init_args)
+        )
 
     async def _send_uninitialize(self) -> None:
         """Best-effort teardown of this station's server-side subscription.
@@ -211,14 +234,9 @@ class WhiskerWebSocket:
         """
         if not self._ws or self._ws.closed:
             return
-        args = [
-            {"StationId": self._station_id, "DataElement": "ComboBinaryData"},
-            self._api_key,
-            str(self._user_id),
-        ]
         with contextlib.suppress(Exception):
             await self._ws.send_bytes(
-                self._encode_invocation("UnInitializeStreaming", args)
+                self._encode_invocation("UnInitializeStreaming", self._stream_args())
             )
 
     async def _close_ws(self) -> None:
@@ -278,6 +296,11 @@ class WhiskerWebSocket:
             self._last_data_time = dt_util.utcnow()
             if not self._first_data_received.is_set():
                 self._first_data_received.set()
+                _LOGGER.debug(
+                    "First voltage sample for station %s; payload fields: %s",
+                    self._station_id,
+                    ", ".join(voltage_data.fields),
+                )
             if self._on_voltage_update:
                 self._on_voltage_update(self._station_id, voltage_data)
             return
@@ -475,10 +498,14 @@ class WhiskerWebSocketManager:
         session: aiohttp.ClientSession,
         on_voltage_update: Callable[[str, VoltageData], None] | None = None,
         publish_interval: float = DEFAULT_PUBLISH_INTERVAL,
+        on_connection_lost: Callable[[str], None] | None = None,
     ) -> None:
         """Initialize the manager."""
         self._session = session
         self._on_voltage_update = on_voltage_update
+        # Lets the owner re-evaluate entity availability the moment a stream
+        # drops, instead of waiting for the next REST poll.
+        self._on_connection_lost = on_connection_lost
         self.publish_interval = publish_interval
         self._connections: dict[str, WhiskerWebSocket] = {}
         self._voltage_data: dict[str, VoltageData] = {}
@@ -503,6 +530,15 @@ class WhiskerWebSocketManager:
         if last is None:
             return False
         return (dt_util.utcnow() - last).total_seconds() <= max_age
+
+    def is_streaming(self, station_id: str) -> bool:
+        """Return True if the current connection is delivering fresh data.
+
+        Stricter than ``is_data_fresh``: a sample received just before the
+        socket dropped no longer counts once the connection is gone.
+        """
+        ws = self._connections.get(station_id)
+        return ws is not None and ws.connected and self.is_data_fresh(station_id)
 
     def _handle_voltage_update(self, station_id: str, data: VoltageData) -> None:
         """Handle a voltage update from a WebSocket connection.
@@ -542,7 +578,7 @@ class WhiskerWebSocketManager:
 
         disconnect() sets the instance's _shutting_down flag (so it can
         never notify again), cancels its ping/receive/stale tasks, and
-        closes its socket — nothing can be orphaned with live tasks.
+        closes its socket, so nothing can be orphaned with live tasks.
         """
         task = asyncio.create_task(ws.disconnect())
         self._teardown_tasks.add(task)
@@ -552,7 +588,7 @@ class WhiskerWebSocketManager:
         """Handle a WebSocket disconnect notification (identity-aware)."""
         # Always tear the reporting instance down, even when shutting down
         # or when it is a stale notification from an already-replaced
-        # connection — this is what guarantees no socket/task leaks.
+        # connection. This is what guarantees no socket/task leaks.
         self._teardown(ws)
 
         if self._shutting_down:
@@ -571,61 +607,27 @@ class WhiskerWebSocketManager:
                 self._rejection_counts.get(station_id, 0) + 1
             )
 
-        # Schedule reconnection
-        if (
-            station_id not in self._reconnect_tasks
-            or self._reconnect_tasks[station_id].done()
-        ):
-            self._reconnect_tasks[station_id] = asyncio.create_task(
-                self._reconnect_with_backoff(station_id)
-            )
+        self._schedule_reconnect(station_id)
+        if self._on_connection_lost:
+            self._on_connection_lost(station_id)
 
-    async def _reconnect_with_backoff(self, station_id: str) -> None:
-        """Reconnect to a station with capped exponential backoff.
+    def _reconnect_pending(self, station_id: str) -> bool:
+        """Return True if a reconnect loop is already running for a station."""
+        task = self._reconnect_tasks.get(station_id)
+        return task is not None and not task.done()
 
-        Never gives up: the server-side streaming-authorization state has
-        been observed to clear after hours, so retries continue at
-        RECONNECT_MAX_DELAY intervals indefinitely.
-        """
-        if station_id not in self._credentials:
-            _LOGGER.error(
-                "No credentials stored for station %s, cannot reconnect", station_id
-            )
+    def _schedule_reconnect(self, station_id: str) -> None:
+        """Start the reconnect loop for a station unless one is running."""
+        if self._shutting_down or self._reconnect_pending(station_id):
             return
+        self._reconnect_tasks[station_id] = asyncio.create_task(
+            self._reconnect_with_backoff(station_id)
+        )
 
+    def _new_connection(self, station_id: str) -> WhiskerWebSocket:
+        """Build a connection for a station from its stored credentials."""
         creds = self._credentials[station_id]
-        attempts = self._reconnect_attempts.get(station_id, 0)
-
-        # Calculate delay with exponential backoff
-        delay = min(
-            self.RECONNECT_MIN_DELAY * (self.RECONNECT_BACKOFF_FACTOR**attempts),
-            self.RECONNECT_MAX_DELAY,
-        )
-        # A repeatedly and genuinely refused subscription retries slowly;
-        # only error-carrying Completions count, so a healthy stream can
-        # never trip this.
-        if (
-            self._rejection_counts.get(station_id, 0)
-            >= self.REJECTION_SLOWDOWN_THRESHOLD
-        ):
-            delay = max(delay, self.REJECTED_RECONNECT_DELAY)
-
-        _LOGGER.info(
-            "Reconnecting to station %s in %.0f seconds (attempt %d)",
-            station_id,
-            delay,
-            attempts + 1,
-        )
-
-        await asyncio.sleep(delay)
-
-        if self._shutting_down:
-            return
-
-        self._reconnect_attempts[station_id] = attempts + 1
-
-        # Create new connection
-        ws = WhiskerWebSocket(
+        return WhiskerWebSocket(
             session=self._session,
             api_key=creds["api_key"],
             user_id=creds["user_id"],
@@ -634,18 +636,75 @@ class WhiskerWebSocketManager:
             on_disconnect=self._handle_disconnect,
         )
 
-        if await ws.connect():
-            self._connections[station_id] = ws
-            _LOGGER.info("Reconnected to station %s", station_id)
-        else:
+    def _install(self, station_id: str, ws: WhiskerWebSocket) -> None:
+        """Make ``ws`` the station's current connection.
+
+        Any other instance still registered is torn down rather than
+        overwritten, so it can never keep streaming as an orphan.
+        """
+        previous = self._connections.get(station_id)
+        if previous is not None and previous is not ws:
+            _LOGGER.debug("Replacing existing connection for station %s", station_id)
+            self._teardown(previous)
+        self._connections[station_id] = ws
+
+    async def _reconnect_with_backoff(self, station_id: str) -> None:
+        """Reconnect to a station with capped exponential backoff.
+
+        Loops until a connection succeeds or the manager shuts down. Never
+        gives up: the server-side streaming-authorization state has been
+        observed to clear after hours, so retries continue at
+        RECONNECT_MAX_DELAY intervals indefinitely.
+        """
+        if station_id not in self._credentials:
+            _LOGGER.error(
+                "No credentials stored for station %s, cannot reconnect", station_id
+            )
+            return
+
+        while not self._shutting_down:
+            attempts = self._reconnect_attempts.get(station_id, 0)
+
+            # Calculate delay with exponential backoff
+            delay = min(
+                self.RECONNECT_MIN_DELAY * (self.RECONNECT_BACKOFF_FACTOR**attempts),
+                self.RECONNECT_MAX_DELAY,
+            )
+            # A repeatedly and genuinely refused subscription retries slowly;
+            # only error-carrying Completions count, so a healthy stream can
+            # never trip this.
+            if (
+                self._rejection_counts.get(station_id, 0)
+                >= self.REJECTION_SLOWDOWN_THRESHOLD
+            ):
+                delay = max(delay, self.REJECTED_RECONNECT_DELAY)
+
+            _LOGGER.info(
+                "Reconnecting to station %s in %.0f seconds (attempt %d)",
+                station_id,
+                delay,
+                attempts + 1,
+            )
+
+            await asyncio.sleep(delay)
+
+            if self._shutting_down:
+                return
+
+            self._reconnect_attempts[station_id] = attempts + 1
+
+            ws = self._new_connection(station_id)
+            if await ws.connect():
+                if self._shutting_down:
+                    await ws.disconnect()
+                    return
+                self._install(station_id, ws)
+                _LOGGER.info("Reconnected to station %s", station_id)
+                return
+
             _LOGGER.warning(
                 "Reconnection failed for station %s, will retry", station_id
             )
-            # Schedule another reconnect attempt
-            if not self._shutting_down:
-                self._reconnect_tasks[station_id] = asyncio.create_task(
-                    self._reconnect_with_backoff(station_id)
-                )
 
     async def connect_device(
         self,
@@ -653,7 +712,11 @@ class WhiskerWebSocketManager:
         user_id: int,
         station_id: str,
     ) -> bool:
-        """Connect to a device's WebSocket stream."""
+        """Connect to a device's WebSocket stream.
+
+        On failure the manager keeps retrying in the background with the
+        usual backoff, so callers never need to retry themselves.
+        """
         if station_id in self._connections:
             _LOGGER.debug("Already connected to station %s", station_id)
             return True
@@ -663,20 +726,16 @@ class WhiskerWebSocketManager:
             "api_key": api_key,
             "user_id": user_id,
         }
+        if self._reconnect_pending(station_id):
+            _LOGGER.debug("Reconnect already in progress for station %s", station_id)
+            return False
         self._reconnect_attempts[station_id] = 0
 
-        ws = WhiskerWebSocket(
-            session=self._session,
-            api_key=api_key,
-            user_id=user_id,
-            station_id=station_id,
-            on_voltage_update=self._handle_voltage_update,
-            on_disconnect=self._handle_disconnect,
-        )
-
+        ws = self._new_connection(station_id)
         if await ws.connect():
-            self._connections[station_id] = ws
+            self._install(station_id, ws)
             return True
+        self._schedule_reconnect(station_id)
         return False
 
     async def disconnect_all(self) -> None:
@@ -684,7 +743,7 @@ class WhiskerWebSocketManager:
         self._shutting_down = True
 
         # Cancel any pending reconnect tasks
-        for task in self._reconnect_tasks.values():
+        for task in list(self._reconnect_tasks.values()):
             if not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

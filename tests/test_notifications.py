@@ -83,6 +83,7 @@ def mock_ws_manager():
     manager.wait_for_data = AsyncMock(return_value=True)
     manager.get_voltage_data = MagicMock(return_value=None)
     manager.is_data_fresh = MagicMock(return_value=True)
+    manager.is_streaming = MagicMock(return_value=True)
     manager.disconnect_all = AsyncMock()
     with patch(
         "custom_components.whisker_ting.coordinator.WhiskerWebSocketManager",

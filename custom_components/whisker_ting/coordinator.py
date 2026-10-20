@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING
 
@@ -22,7 +22,6 @@ from .api import (
     WhiskerAuthError,
 )
 from .const import (
-    CONF_STATION_IDS,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_VOLTAGE_PUBLISH_INTERVAL,
     DOMAIN,
@@ -34,21 +33,6 @@ if TYPE_CHECKING:
     import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
-
-# Station-id candidates for the streaming subscription, in order of
-# likelihood. The serial number works for most accounts; when the server
-# rejects it (or stays silent), the coordinator probes the alternates and
-# persists the first one that produces voltage data.
-_STATION_ID_CANDIDATES = (
-    lambda d: d.serial_number,
-    lambda d: str(d.site_id) if d.site_id else None,
-    lambda d: d.soc_serial_number,
-    lambda d: str(d.group_id) if d.group_id else None,
-)
-
-# How long to wait for voltage data after subscribing before moving to the
-# next candidate station id.
-_PROBE_TIMEOUT = 35.0  # seconds
 
 
 class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
@@ -76,21 +60,13 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
         self._session = session
         self._last_update_success: bool | None = None
         self._ws_manager: WhiskerWebSocketManager | None = None
-        self._ws_connected = False
+        # True once every device's stream has been handed to the manager,
+        # which owns all retries from then on.
+        self._ws_started = False
         self.notify_enabled = notify_enabled
         self.voltage_publish_interval = voltage_publish_interval
         self._seen_notification_ids: set[str] = set()
         self._notifications_seeded = False
-        # Discovered station_ids keyed by device serial number, persisted in
-        # config-entry options so restarts skip the probe.
-        self._discovered_station_ids: dict[str, str] = dict(
-            (config_entry.options.get(CONF_STATION_IDS) or {}) if config_entry else {}
-        )
-        self._probe_tasks: dict[str, asyncio.Task] = {}
-        # After a full candidate rotation fails, wait four hours before
-        # probing again (the manager's rejection-aware backoff keeps
-        # retrying the serial in the meantime).
-        self._probe_cooldown_until: dict[str, datetime] = {}
 
     async def _async_setup(self) -> None:
         """One-time setup: create the WebSocket manager."""
@@ -98,6 +74,7 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
             session=self._session,
             on_voltage_update=self._handle_voltage_update,
             publish_interval=float(self.voltage_publish_interval),
+            on_connection_lost=self._handle_connection_lost,
         )
 
     def set_voltage_publish_interval(self, seconds: int) -> None:
@@ -109,13 +86,18 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
     def voltage_is_live(self, device_id: str) -> bool:
         """Return True if a fresh real-time voltage stream exists for a device.
 
-        ``device_id`` is the device serial; the manager keys freshness by
-        station id, which differs from the serial on probed accounts.
+        ``device_id`` is the device serial, which is also the StationId the
+        stream is keyed by.
         """
         if not self._ws_manager:
             return False
-        station_id = self._discovered_station_ids.get(device_id, device_id)
-        return self._ws_manager.is_data_fresh(station_id)
+        return self._ws_manager.is_streaming(device_id)
+
+    @callback
+    def _handle_connection_lost(self, station_id: str) -> None:
+        """Re-evaluate availability as soon as a voltage stream drops."""
+        if self.data is not None:
+            self.async_update_listeners()
 
     @callback
     def _handle_voltage_update(
@@ -144,10 +126,16 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 self.async_update_listeners()
                 break
 
-    async def _connect_websocket(self, data: dict[str, DeviceState]) -> None:
-        """Connect to WebSocket for real-time updates."""
-        if not data or self._ws_connected:
-            return
+    async def _connect_websocket(self, data: dict[str, DeviceState]) -> list[str]:
+        """Hand every device's real-time stream to the WebSocket manager.
+
+        Runs once. A device whose first connect fails is retried by the
+        manager in the background, so a multi-device account never strands
+        one device just because another connected. Returns the station ids
+        that connected now.
+        """
+        if not data or self._ws_started:
+            return []
 
         # Get api_key and user_id from the client
         api_key = self.client.api_key
@@ -155,89 +143,57 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
 
         if not api_key or not user_id:
             _LOGGER.debug("No api_key or user_id, skipping WebSocket connection")
-            return
+            return []
 
-        # Connect to each device's WebSocket stream
-        for device_id, device_state in data.items():
-            # Prefer a previously discovered (probed) station id
-            known = self._discovered_station_ids.get(device_state.serial_number)
-            if known:
-                device_state.station_id = known
-            if device_state.station_id:
-                try:
-                    connected = await self._ws_manager.connect_device(
-                        api_key=api_key,
-                        user_id=user_id,
-                        station_id=device_state.station_id,
-                    )
-                    if connected:
-                        _LOGGER.info(
-                            "Connected to WebSocket for device %s (station %s)",
-                            device_id,
-                            device_state.station_id,
-                        )
-                        self._ws_connected = True
-                except Exception as err:  # noqa: BLE001 - one device's failure must not abort the rest
-                    _LOGGER.warning(
-                        "Failed to connect WebSocket for device %s: %s",
-                        device_id,
-                        err,
-                    )
-
-    def _maybe_start_station_probe(self, device_state: DeviceState) -> None:
-        """Do nothing: station-id probing cannot discriminate candidates.
-
-        The hub answers EVERY InitializeStreaming with an error-free Completion
-        regardless of the StationId supplied, so "no data yet" never
-        distinguished a wrong station id from an inactive stream. In
-        practice the probe rotated onto site/group ids and subscribed to
-        the wrong station. The official app uses the sensor serial as
-        StationId (chunk-GBDILMAT.js: StationId = sensorSerial); so do we.
-        Kept as a no-op so persisted options and callers stay valid.
-        """
-        return
-
-    def _persist_station_id(self, serial: str, station_id: str) -> None:
-        """Persist a discovered station id to config-entry options."""
-        self._discovered_station_ids[serial] = station_id
-        entry = self.config_entry
-        if entry is None:
-            return
-        stored = entry.options.get(CONF_STATION_IDS) or {}
-        if stored.get(serial) == station_id:
-            return
-        self.hass.config_entries.async_update_entry(
-            entry,
-            options={
-                **entry.options,
-                CONF_STATION_IDS: {**stored, serial: station_id},
-            },
+        self._ws_started = True
+        # Connect every device concurrently so several unreachable streams
+        # can't stack their connect timeouts onto the first refresh.
+        targets = [
+            (device_id, device_state.station_id)
+            for device_id, device_state in data.items()
+            if device_state.station_id
+        ]
+        results = await asyncio.gather(
+            *(
+                self._ws_manager.connect_device(
+                    api_key=api_key, user_id=user_id, station_id=station_id
+                )
+                for _, station_id in targets
+            ),
+            return_exceptions=True,
         )
+        connected: list[str] = []
+        for (device_id, station_id), result in zip(targets, results, strict=True):
+            if isinstance(result, BaseException):
+                # One device's failure must not abort the rest
+                _LOGGER.warning(
+                    "Failed to connect WebSocket for device %s: %s", device_id, result
+                )
+            elif result:
+                connected.append(station_id)
+                _LOGGER.info(
+                    "Connected to WebSocket for device %s (station %s)",
+                    device_id,
+                    station_id,
+                )
+            else:
+                _LOGGER.info(
+                    "WebSocket for device %s not connected yet; retrying in the "
+                    "background",
+                    device_id,
+                )
+        return connected
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
-        for task in self._probe_tasks.values():
-            if not task.done():
-                task.cancel()
-        self._probe_tasks.clear()
         if self._ws_manager:
             await self._ws_manager.disconnect_all()
-            self._ws_connected = False
         await super().async_shutdown()
 
     async def _async_update_data(self) -> dict[str, DeviceState]:
         """Fetch data from the API."""
         try:
             data = await self.client.get_all_device_states()
-
-            # The API parser sets station_id to the serial; re-apply any
-            # probed station id on EVERY poll — the DeviceState objects are
-            # rebuilt each cycle, and _handle_voltage_update matches
-            # incoming samples against device_state.station_id.
-            for device_state in data.values():
-                known = self._discovered_station_ids.get(device_state.serial_number)
-                if known:
-                    device_state.station_id = known
 
             # Preserve existing voltage data from WebSocket
             if self.data:
@@ -250,40 +206,34 @@ class WhiskerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]
                 _LOGGER.info("Connection to Whisker Ting API restored")
             self._last_update_success = True
 
-            # Connect WebSocket on first fetch and wait for data
-            if not self._ws_connected:
-                await self._connect_websocket(data)
-                # Wait for actual voltage data to arrive (not arbitrary sleep)
-                if self._ws_connected and self._ws_manager:
-                    # Wait for data from all devices in parallel
-                    wait_tasks = [
-                        self._ws_manager.wait_for_data(
-                            device_state.station_id, timeout=5.0
+            # Connect WebSocket on first fetch, then wait (in parallel,
+            # briefly) for the first sample only on streams that actually
+            # opened; a failed connect is retried in the background and must
+            # not delay setup.
+            if (
+                not self._ws_started
+                and self._ws_manager
+                and (connected := await self._connect_websocket(data))
+            ):
+                await asyncio.gather(
+                    *(
+                        self._ws_manager.wait_for_data(station_id, timeout=5.0)
+                        for station_id in connected
+                    )
+                )
+                # Update data with voltage readings received
+                for device_state in data.values():
+                    if device_state.station_id and (
+                        voltage_data := self._ws_manager.get_voltage_data(
+                            device_state.station_id
                         )
-                        for device_state in data.values()
-                        if device_state.station_id
-                    ]
-                    if wait_tasks:
-                        await asyncio.gather(*wait_tasks)
-                    # Update data with voltage readings received
-                    for device_state in data.values():
-                        if device_state.station_id:
-                            voltage_data = self._ws_manager.get_voltage_data(
-                                device_state.station_id
-                            )
-                            if voltage_data:
-                                device_state.voltage = VoltageReading(
-                                    voltage=voltage_data.voltage,
-                                    voltage_hi=voltage_data.voltage_hi,
-                                    voltage_lo=voltage_data.voltage_lo,
-                                    average_peaks_max=voltage_data.average_peaks_max,
-                                )
-                            # No probe here: every candidate station id
-                            # returns the same void acknowledgement, so the
-                            # probe cannot discriminate — it only produced
-                            # subscriptions to the wrong station. The device
-                            # serial is the correct StationId (matches the
-                            # official app: StationId = sensor serial).
+                    ):
+                        device_state.voltage = VoltageReading(
+                            voltage=voltage_data.voltage,
+                            voltage_hi=voltage_data.voltage_hi,
+                            voltage_lo=voltage_data.voltage_lo,
+                            average_peaks_max=voltage_data.average_peaks_max,
+                        )
             # Fetch notifications (best-effort; users poll stays authoritative).
             try:
                 notifications = await self.client.get_notifications()

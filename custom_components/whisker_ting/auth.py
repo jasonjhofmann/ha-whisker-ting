@@ -7,19 +7,25 @@ import binascii
 import datetime
 import hashlib
 import hmac
+import json
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from .const import COGNITO_CLIENT_ID, COGNITO_REGION, COGNITO_USER_POOL_ID
+import aiohttp
 
-if TYPE_CHECKING:
-    import aiohttp
+from .const import (
+    COGNITO_CLIENT_ID,
+    COGNITO_REGION,
+    COGNITO_USER_POOL_ID,
+    REQUEST_TIMEOUT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 # Cognito endpoint
 COGNITO_IDP_URL = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/"
+_TIMEOUT = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
 
 # SRP constants (from amazon-cognito-identity-js)
 N_HEX = (
@@ -62,6 +68,52 @@ MONTH_NAMES = [
 
 class AuthenticationError(Exception):
     """Authentication error."""
+
+
+class CognitoServiceError(Exception):
+    """Transient or unexpected Cognito service error."""
+
+
+_AUTH_REJECTION_TYPES = {
+    "NotAuthorizedException",
+    "PasswordResetRequiredException",
+    "UserNotConfirmedException",
+    "UserNotFoundException",
+}
+
+
+def _cognito_error_type(response_body: str) -> str | None:
+    """Extract Cognito's error type without exposing the response body."""
+    try:
+        payload = json.loads(response_body)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw_type = payload.get("__type") or payload.get("code")
+    if not isinstance(raw_type, str):
+        return None
+    return raw_type.rsplit("#", 1)[-1].split(":", 1)[0]
+
+
+async def _raise_cognito_error(
+    response: aiohttp.ClientResponse,
+    operation: str,
+    *,
+    invalid_credentials_message: str | None = None,
+) -> None:
+    """Raise a sanitized auth or service error for a Cognito response."""
+    response_body = await response.text()
+    error_type = _cognito_error_type(response_body)
+    _LOGGER.debug("%s failed with HTTP %s", operation, response.status)
+
+    if response.status in (401, 403) or error_type in _AUTH_REJECTION_TYPES:
+        raise AuthenticationError(
+            invalid_credentials_message
+            or f"{operation} rejected authentication (HTTP {response.status})"
+        )
+
+    raise CognitoServiceError(f"{operation} failed (HTTP {response.status})")
 
 
 def hash_sha256(buf: bytes) -> str:
@@ -261,7 +313,7 @@ class WhiskerAuth:
         tokens = auth_result["AuthenticationResult"]
 
         # Step 3: Get user attributes
-        user_info = await self._get_user(tokens["AccessToken"])
+        user_info = await self.get_user(tokens["AccessToken"])
 
         return {
             "access_token": tokens["AccessToken"],
@@ -287,11 +339,10 @@ class WhiskerAuth:
         }
 
         async with self._session.post(
-            COGNITO_IDP_URL, json=payload, headers=headers
+            COGNITO_IDP_URL, json=payload, headers=headers, timeout=_TIMEOUT
         ) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                raise AuthenticationError(f"Token refresh failed: {text}")
+                await _raise_cognito_error(resp, "Token refresh")
 
             result = await resp.json(content_type=None)
 
@@ -315,13 +366,14 @@ class WhiskerAuth:
 
         _LOGGER.debug("Initiating SRP auth for user: %s", auth_params.get("USERNAME"))
         async with self._session.post(
-            COGNITO_IDP_URL, json=payload, headers=headers
+            COGNITO_IDP_URL, json=payload, headers=headers, timeout=_TIMEOUT
         ) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                if "UserNotFoundException" in text or "NotAuthorizedException" in text:
-                    raise AuthenticationError("Invalid username or password")
-                raise AuthenticationError(f"Auth initiation failed: {text}")
+                await _raise_cognito_error(
+                    resp,
+                    "Auth initiation",
+                    invalid_credentials_message="Invalid username or password",
+                )
 
             return await resp.json(content_type=None)
 
@@ -344,18 +396,18 @@ class WhiskerAuth:
             "Responding to challenge for user: %s", challenge_response.get("USERNAME")
         )
         async with self._session.post(
-            COGNITO_IDP_URL, json=payload, headers=headers
+            COGNITO_IDP_URL, json=payload, headers=headers, timeout=_TIMEOUT
         ) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                _LOGGER.debug("Challenge response failed: %s", text)
-                if "NotAuthorizedException" in text:
-                    raise AuthenticationError("Invalid username or password")
-                raise AuthenticationError(f"Challenge response failed: {text}")
+                await _raise_cognito_error(
+                    resp,
+                    "Challenge response",
+                    invalid_credentials_message="Invalid username or password",
+                )
 
             return await resp.json(content_type=None)
 
-    async def _get_user(self, access_token: str) -> dict[str, Any]:
+    async def get_user(self, access_token: str) -> dict[str, Any]:
         """Get user attributes from Cognito."""
         headers = {
             "Content-Type": "application/x-amz-json-1.1",
@@ -367,10 +419,9 @@ class WhiskerAuth:
         }
 
         async with self._session.post(
-            COGNITO_IDP_URL, json=payload, headers=headers
+            COGNITO_IDP_URL, json=payload, headers=headers, timeout=_TIMEOUT
         ) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                raise AuthenticationError(f"Failed to get user info: {text}")
+                await _raise_cognito_error(resp, "Get user")
 
             return await resp.json(content_type=None)

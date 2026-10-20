@@ -6,16 +6,36 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 from homeassistant.util import dt as dt_util
 
-from .auth import AuthenticationError, WhiskerAuth
-from .const import API_BASE_URL, API_NOTIFICATIONS_ENDPOINT, API_USERS_ENDPOINT
+from .auth import AuthenticationError, CognitoServiceError, WhiskerAuth
+from .const import (
+    API_BASE_URL,
+    API_NOTIFICATIONS_ENDPOINT,
+    API_USERS_ENDPOINT,
+    REQUEST_TIMEOUT,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _LOGGER = logging.getLogger(__name__)
+
+# Failures talking to Cognito that are worth retrying rather than treating
+# as bad credentials: transport errors, timeouts, outages, and malformed
+# success responses (missing keys, non-JSON bodies).
+_TRANSIENT_AUTH_ERRORS = (
+    CognitoServiceError,
+    aiohttp.ClientError,
+    TimeoutError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
 
 
 def _reverse_mac(mac: str | None) -> str | None:
@@ -196,7 +216,9 @@ class WhiskerApiClient:
         self,
         session: aiohttp.ClientSession,
         username: str,
-        password: str,
+        password: str | None = None,
+        refresh_token: str | None = None,
+        on_refresh_token_update: Callable[[str], None] | None = None,
     ) -> None:
         """Initialize the API client."""
         self._session = session
@@ -206,7 +228,8 @@ class WhiskerApiClient:
 
         # Token storage
         self._access_token: str | None = None
-        self._refresh_token: str | None = None
+        self._refresh_token: str | None = refresh_token
+        self._on_refresh_token_update = on_refresh_token_update
         self._id_token: str | None = None
         self._api_key: str | None = None
         self._user_id: int | None = None
@@ -223,6 +246,92 @@ class WhiskerApiClient:
         """Return the API key."""
         return self._api_key
 
+    @property
+    def refresh_token(self) -> str | None:
+        """Return the refresh token that should be persisted by Home Assistant."""
+        return self._refresh_token
+
+    def _set_user_attributes(self, attributes: Any) -> None:
+        """Populate account identifiers from Cognito user attributes."""
+        if not isinstance(attributes, list):
+            raise WhiskerAuthError(
+                "Authentication response is missing required account attributes"
+            )
+
+        user_attrs = {
+            attr["Name"]: attr["Value"]
+            for attr in attributes
+            if isinstance(attr, dict) and "Name" in attr and "Value" in attr
+        }
+        try:
+            user_id = int(user_attrs["custom:user_id"])
+            api_key = user_attrs["custom:api_key"]
+        except (KeyError, TypeError, ValueError) as err:
+            raise WhiskerAuthError(
+                "Authentication response is missing required account attributes"
+            ) from err
+
+        if not user_id or not api_key:
+            raise WhiskerAuthError(
+                "Authentication response is missing required account attributes"
+            )
+
+        self._user_id = user_id
+        self._api_key = api_key
+
+    def _set_refreshed_token(self, refresh_token: str) -> None:
+        """Store and publish a rotated refresh token without logging it."""
+        if refresh_token == self._refresh_token:
+            return
+        self._refresh_token = refresh_token
+        if self._on_refresh_token_update:
+            self._on_refresh_token_update(refresh_token)
+
+    async def async_fetch_user_attributes(self) -> None:
+        """Fetch account identifiers after refresh-token authentication."""
+        if not self._access_token:
+            raise WhiskerAuthError("No access token available for account lookup")
+
+        try:
+            user_info = await self._auth.get_user(self._access_token)
+        except AuthenticationError as err:
+            raise WhiskerAuthError(str(err)) from err
+        except _TRANSIENT_AUTH_ERRORS as err:
+            raise WhiskerConnectionError(
+                "Connection error while fetching account attributes"
+            ) from err
+
+        if not isinstance(user_info, dict):
+            raise WhiskerAuthError("Authentication returned invalid account data")
+
+        self._set_user_attributes(user_info.get("UserAttributes", []))
+
+    async def _renew_token(self) -> str:
+        """Refresh the access token, falling back to password auth when possible."""
+        if self._refresh_token:
+            try:
+                await self._refresh_access_token()
+                if not self._user_id or not self._api_key:
+                    await self.async_fetch_user_attributes()
+            except WhiskerAuthError:
+                if not self._password:
+                    raise
+                _LOGGER.debug(
+                    "Refresh-token authentication failed; retrying with password"
+                )
+            else:
+                if self._access_token is None:
+                    raise WhiskerAuthError("Token refresh returned no access token")
+                return self._access_token
+
+        if not self._password:
+            raise WhiskerAuthError("No usable authentication credentials are available")
+
+        await self._authenticate()
+        if self._access_token is None:
+            raise WhiskerAuthError("Authentication returned no access token")
+        return self._access_token
+
     async def _ensure_token(self) -> str:
         """Ensure we have a valid access token."""
         async with self._lock:
@@ -232,57 +341,58 @@ class WhiskerApiClient:
                 and self._token_expiry
                 and dt_util.utcnow() < self._token_expiry - timedelta(minutes=5)
             ):
+                if not self._user_id or not self._api_key:
+                    await self.async_fetch_user_attributes()
                 return self._access_token
 
-            # Need to authenticate or refresh
-            if self._refresh_token:
-                try:
-                    await self._refresh_access_token()
-                except AuthenticationError:
-                    # Refresh failed, try full auth
-                    pass
-                else:
-                    return self._access_token
-
-            # Full authentication
-            await self._authenticate()
-            return self._access_token
+            return await self._renew_token()
 
     async def _authenticate(self) -> None:
         """Perform full authentication."""
+        if not self._password:
+            raise WhiskerAuthError("No password available for authentication")
+
         _LOGGER.debug("Performing full authentication")
         try:
             result = await self._auth.authenticate(self._username, self._password)
 
             self._access_token = result["access_token"]
-            self._refresh_token = result["refresh_token"]
+            refresh_token = result.get("refresh_token")
+            if not refresh_token:
+                raise WhiskerAuthError(
+                    "Authentication response did not include a refresh token"
+                )
+            self._refresh_token = refresh_token
             self._id_token = result["id_token"]
 
             # Use the lifetime Cognito reports rather than assuming one hour.
             expires_in = int(result.get("expires_in", 3600))
             self._token_expiry = dt_util.utcnow() + timedelta(seconds=expires_in)
 
-            # Extract user info from attributes
-            user_attrs = {
-                attr["Name"]: attr["Value"]
-                for attr in result.get("user_attributes", [])
-            }
-            self._user_id = int(user_attrs.get("custom:user_id", 0))
-            self._api_key = user_attrs.get("custom:api_key")
+            self._set_user_attributes(result.get("user_attributes", []))
 
             _LOGGER.debug("Authentication successful, user_id=%s", self._user_id)
 
         except AuthenticationError as err:
             raise WhiskerAuthError(str(err)) from err
+        except _TRANSIENT_AUTH_ERRORS as err:
+            raise WhiskerConnectionError(
+                "Connection error during authentication"
+            ) from err
 
     async def _refresh_access_token(self) -> None:
         """Refresh the access token."""
+        if not self._refresh_token:
+            raise WhiskerAuthError("No refresh token available")
+
         _LOGGER.debug("Refreshing access token")
         try:
             result = await self._auth.refresh_tokens(self._refresh_token)
 
             self._access_token = result["AccessToken"]
             self._id_token = result.get("IdToken", self._id_token)
+            if rotated_refresh_token := result.get("RefreshToken"):
+                self._set_refreshed_token(rotated_refresh_token)
             expires_in = int(result.get("ExpiresIn", 3600))
             self._token_expiry = dt_util.utcnow() + timedelta(seconds=expires_in)
 
@@ -290,6 +400,10 @@ class WhiskerApiClient:
 
         except AuthenticationError as err:
             raise WhiskerAuthError(str(err)) from err
+        except _TRANSIENT_AUTH_ERRORS as err:
+            raise WhiskerConnectionError(
+                "Connection error while refreshing token"
+            ) from err
 
     async def _request(
         self,
@@ -307,17 +421,19 @@ class WhiskerApiClient:
         }
 
         url = f"{API_BASE_URL}{endpoint}"
+        kwargs.setdefault("timeout", aiohttp.ClientTimeout(total=REQUEST_TIMEOUT))
 
         try:
             async with self._session.request(
                 method, url, headers=headers, **kwargs
             ) as response:
                 if response.status == 401:
-                    # Token might have expired, try refreshing once
+                    # The service rejected a token that looked current. Force one
+                    # refresh (or password fallback for a legacy runtime) and retry.
                     async with self._lock:
-                        await self._authenticate()
-                    token = self._access_token
+                        token = await self._renew_token()
                     headers["Authorization"] = f"Bearer {token}"
+                    headers["x-wl-api-key"] = self._api_key or ""
                     async with self._session.request(
                         method, url, headers=headers, **kwargs
                     ) as retry_response:
@@ -327,15 +443,27 @@ class WhiskerApiClient:
                         return await retry_response.json()
 
                 if response.status != 200:
-                    text = await response.text()
+                    # The body is deliberately not included: it can be a
+                    # large HTML error page or echo account details, and
+                    # this message reaches the log and the entry state.
                     raise WhiskerApiError(
-                        f"API request failed with status {response.status}: {text}"
+                        f"API request to {endpoint} failed with status "
+                        f"{response.status}"
                     )
 
                 return await response.json()
 
         except aiohttp.ClientError as err:
             raise WhiskerConnectionError(f"Connection error: {err}") from err
+        except TimeoutError as err:
+            raise WhiskerConnectionError(
+                f"API request to {endpoint} timed out"
+            ) from err
+        except ValueError as err:
+            # A 200 whose body is not valid JSON
+            raise WhiskerApiError(
+                f"API request to {endpoint} returned invalid JSON"
+            ) from err
 
     async def get_user_data(self) -> UserData:
         """Get user data including devices."""
@@ -352,7 +480,9 @@ class WhiskerApiClient:
         # Parse sites first so device parsing can join site-level fields.
         sites = []
         site_map: dict[int, Site] = {}
-        for site_data in data.get("sites", []):
+        for site_data in data.get("sites") or []:
+            if not isinstance(site_data, dict):
+                continue
             site = Site(
                 id=site_data.get("id", 0),
                 user_id=site_data.get("userId", 0),
@@ -370,7 +500,9 @@ class WhiskerApiClient:
             site_map[site.id] = site
 
         devices = []
-        for device_data in data.get("devices", []):
+        for device_data in data.get("devices") or []:
+            if not isinstance(device_data, dict):
+                continue
             device = self._parse_device(device_data, site_map)
             devices.append(device)
 
@@ -389,10 +521,12 @@ class WhiskerApiClient:
     ) -> DeviceState:
         """Parse device state from API response."""
         # Parse fire hazard status
-        fhs_data = data.get("fireHazardStatus", {})
-        efh_data = fhs_data.get("efhStatus", {})
-        ufh_data = fhs_data.get("ufhStatus", {})
-        hex_colors = fhs_data.get("hexColor", {})
+        # `or {}` rather than a .get default: the API sends explicit nulls
+        # for absent nested objects, and None.get() would fail the poll.
+        fhs_data = data.get("fireHazardStatus") or {}
+        efh_data = fhs_data.get("efhStatus") or {}
+        ufh_data = fhs_data.get("ufhStatus") or {}
+        hex_colors = fhs_data.get("hexColor") or {}
 
         efh_status = HazardStatus(
             status=efh_data.get("status"),
@@ -421,7 +555,7 @@ class WhiskerApiClient:
         )
 
         # Parse group info
-        group_data = data.get("group", {})
+        group_data = data.get("group") or {}
 
         # Get station_id for WebSocket - it's the serial number
         station_id = data.get("serialNumber", "")
@@ -467,7 +601,9 @@ class WhiskerApiClient:
         data = await self._request("GET", endpoint)
         if not isinstance(data, list):
             return []
-        return [self._parse_notification(item) for item in data]
+        return [
+            self._parse_notification(item) for item in data if isinstance(item, dict)
+        ]
 
     @staticmethod
     def _parse_notification(data: dict[str, Any]) -> TingNotification:

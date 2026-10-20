@@ -17,6 +17,7 @@ TO_REDACT = {
     # not "email" - redact the actual key so it doesn't leak in entry_data.
     "username",
     "password",
+    "refresh_token",
     "api_key",
     "email",
     "phone_number",

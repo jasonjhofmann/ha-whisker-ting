@@ -118,6 +118,13 @@ def test_decode_voltage_update_named_fields():
     )
 
 
+def test_decode_voltage_update_reports_every_payload_field():
+    """Unknown keys (e.g. a future harmonic-distortion value) are surfaced."""
+    message = _voltage_message({"Voltage": 120.0, "Thd": 2.5, "VoltageHi": 121.0})
+    update = protocol.decode_voltage_update(message)
+    assert update.fields == ("Thd", "Voltage", "VoltageHi")
+
+
 def test_decode_voltage_update_key_order_independent():
     """Field order on the wire must not matter (positional decode regression)."""
     message = _voltage_message(

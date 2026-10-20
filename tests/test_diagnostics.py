@@ -17,6 +17,7 @@ def mock_ws_manager():
     manager.wait_for_data = AsyncMock(return_value=True)
     manager.get_voltage_data = MagicMock(return_value=None)
     manager.is_data_fresh = MagicMock(return_value=True)
+    manager.is_streaming = MagicMock(return_value=True)
     manager.disconnect_all = AsyncMock()
     with patch(
         "custom_components.whisker_ting.coordinator.WhiskerWebSocketManager",
@@ -35,6 +36,7 @@ async def test_diagnostics_redacts_secrets(
     diag = await async_get_config_entry_diagnostics(hass, mock_config_entry)
     text = str(diag)
     assert "hunter2" not in text  # password
+    assert "refresh-token-secret" not in text
     assert (
         "80:6a:10:19:2a:b7" not in text
     )  # wifi mac (normalized physical form held by DeviceState)

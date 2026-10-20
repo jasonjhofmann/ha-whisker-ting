@@ -7,6 +7,7 @@ never-give-up capped backoff, and the ping/stale/close runtime paths.
 """
 
 import asyncio
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
@@ -325,3 +326,126 @@ async def test_ping_cadence_matches_the_app():
     hub on 2026-08-05.
     """
     assert WhiskerWebSocket.PING_INTERVAL == 3
+
+
+# ---------------------------------------------------------------------------
+# Manager-owned retries and single-connection invariant
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedSocket:
+    """Stand-in connection whose connect() results follow a script."""
+
+    results: ClassVar[list[bool]] = []
+    created: ClassVar[list["_ScriptedSocket"]] = []
+
+    def __init__(self, **kwargs):
+        self.station_id = kwargs["station_id"]
+        self.connected = True
+        self.disconnect = AsyncMock()
+        _ScriptedSocket.created.append(self)
+
+    async def connect(self):
+        return _ScriptedSocket.results.pop(0)
+
+
+def _script(monkeypatch, results):
+    _ScriptedSocket.results = list(results)
+    _ScriptedSocket.created = []
+    monkeypatch.setattr(
+        "custom_components.whisker_ting.websocket.WhiskerWebSocket", _ScriptedSocket
+    )
+
+
+async def test_failed_first_connect_retries_in_the_background(monkeypatch):
+    """Regression: a device whose first connect failed was never retried."""
+    _script(monkeypatch, [False, False, True])
+    manager = WhiskerWebSocketManager(session=MagicMock())
+    delays = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    assert await manager.connect_device("k", 1, "TG-0001") is False
+    await manager._reconnect_tasks["TG-0001"]
+
+    # One loop, escalating backoff, ends with exactly one installed connection
+    assert delays == [manager.RECONNECT_MIN_DELAY, manager.RECONNECT_MIN_DELAY * 2]
+    assert manager._connections["TG-0001"] is _ScriptedSocket.created[-1]
+    assert len(_ScriptedSocket.created) == 3
+
+
+async def test_connect_device_defers_to_a_pending_reconnect(monkeypatch):
+    _script(monkeypatch, [])
+    manager = WhiskerWebSocketManager(session=MagicMock())
+    pending = asyncio.get_running_loop().create_future()
+    manager._reconnect_tasks["TG-0001"] = asyncio.ensure_future(pending)
+
+    assert await manager.connect_device("k", 1, "TG-0001") is False
+    assert _ScriptedSocket.created == []  # no second, competing connection
+    pending.cancel()
+
+
+async def test_install_tears_down_a_displaced_connection():
+    manager = WhiskerWebSocketManager(session=MagicMock())
+    old, new = _fake_conn(), _fake_conn()
+    manager._install("TG-0001", old)
+    manager._install("TG-0001", new)
+    for task in list(manager._teardown_tasks):
+        await task
+    assert manager._connections["TG-0001"] is new
+    old.disconnect.assert_awaited()
+    new.disconnect.assert_not_awaited()
+
+
+async def test_is_streaming_requires_an_open_current_connection():
+    manager = WhiskerWebSocketManager(session=MagicMock())
+    manager._handle_voltage_update("TG-0001", _sample())
+    assert manager.is_data_fresh("TG-0001") is True
+    assert manager.is_streaming("TG-0001") is False  # no connection
+
+    conn = _fake_conn()
+    conn.connected = True
+    manager._connections["TG-0001"] = conn
+    assert manager.is_streaming("TG-0001") is True
+
+    conn.connected = False
+    assert manager.is_streaming("TG-0001") is False
+
+
+async def test_connection_lost_callback_fires_only_for_the_current_connection():
+    lost = []
+    manager = WhiskerWebSocketManager(
+        session=MagicMock(), on_connection_lost=lost.append
+    )
+    manager._credentials["TG-0001"] = {"api_key": "k", "user_id": 1}
+    manager._reconnect_attempts["TG-0001"] = 3  # keep the backoff sleeping
+    current, stale = _fake_conn(), _fake_conn()
+    manager._connections["TG-0001"] = current
+
+    manager._handle_disconnect("TG-0001", stale)
+    assert lost == []
+    manager._handle_disconnect("TG-0001", current)
+    assert lost == ["TG-0001"]
+
+    await manager.disconnect_all()
+
+
+async def test_connect_times_out_instead_of_hanging(monkeypatch):
+    """A hung upgrade resolves to False within CONNECT_TIMEOUT."""
+    monkeypatch.setattr(WhiskerWebSocket, "CONNECT_TIMEOUT", 0.05)
+    session = MagicMock()
+
+    async def hang(*args, **kwargs):
+        await asyncio.sleep(3600)
+
+    session.ws_connect = hang
+    client = WhiskerWebSocket(
+        session=session, api_key="k", user_id=1, station_id="TG-0001"
+    )
+    assert await client.connect() is False
+    assert client.connected is False

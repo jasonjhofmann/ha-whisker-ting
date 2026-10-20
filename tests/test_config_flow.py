@@ -6,12 +6,22 @@ import pytest
 
 from custom_components.whisker_ting.api import WhiskerAuthError, WhiskerConnectionError
 from custom_components.whisker_ting.auth import AuthenticationError
-from custom_components.whisker_ting.const import DOMAIN
+from custom_components.whisker_ting.const import (
+    CONF_PASSWORD,
+    CONF_REFRESH_TOKEN,
+    DOMAIN,
+)
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
-from .const import TEST_USER_ID, TEST_USERNAME, USER_INPUT
+from .const import (
+    STORED_CREDENTIALS,
+    TEST_REFRESH_TOKEN,
+    TEST_USER_ID,
+    TEST_USERNAME,
+    USER_INPUT,
+)
 
 
 async def test_user_success(hass: HomeAssistant, mock_client):
@@ -28,7 +38,8 @@ async def test_user_success(hass: HomeAssistant, mock_client):
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Whisker Ting (Ada Lovelace)"
-    assert result["data"] == USER_INPUT
+    assert result["data"] == STORED_CREDENTIALS
+    assert CONF_PASSWORD not in result["data"]
     assert result["result"].unique_id == str(TEST_USER_ID)
 
 
@@ -47,6 +58,20 @@ async def test_user_success_without_first_name(hass: HomeAssistant, mock_client)
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == f"Whisker Ting ({TEST_USERNAME})"
+
+
+async def test_user_requires_refresh_token(hass: HomeAssistant, mock_client):
+    """A successful login without a refresh token must not create an entry."""
+    mock_client.refresh_token = None
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], USER_INPUT
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_auth"}
 
 
 @pytest.mark.parametrize(
@@ -102,7 +127,11 @@ async def test_reauth_success(hass: HomeAssistant, mock_client, mock_config_entr
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
-    assert mock_config_entry.data["password"] == "newpass"
+    assert mock_config_entry.data == {
+        "username": TEST_USERNAME,
+        CONF_REFRESH_TOKEN: TEST_REFRESH_TOKEN,
+    }
+    assert CONF_PASSWORD not in mock_config_entry.data
 
 
 async def test_reauth_wrong_account(

@@ -21,6 +21,7 @@ from .auth import AuthenticationError
 from .const import (
     CONF_ALERT_NOTIFICATIONS,
     CONF_PASSWORD,
+    CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     CONF_VOLTAGE_PUBLISH_INTERVAL,
@@ -37,10 +38,17 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _require_refresh_token(client: WhiskerApiClient) -> str:
+    """Return the new refresh token or reject an incomplete login."""
+    if refresh_token := client.refresh_token:
+        return refresh_token
+    raise WhiskerAuthError("Authentication did not return a refresh token")
+
+
 class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Whisker Ting."""
 
-    VERSION = 1
+    VERSION = 2
 
     @staticmethod
     @callback
@@ -64,6 +72,7 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             try:
                 # Test authentication and get user data
                 user_data = await client.get_user_data()
+                refresh_token = _require_refresh_token(client)
             except AuthenticationError:
                 errors["base"] = "invalid_auth"
             except WhiskerAuthError:
@@ -90,7 +99,7 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                     title=title,
                     data={
                         CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
+                        CONF_REFRESH_TOKEN: refresh_token,
                     },
                 )
 
@@ -124,6 +133,7 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
             try:
                 user_data = await client.get_user_data()
+                refresh_token = _require_refresh_token(client)
             except (AuthenticationError, WhiskerAuthError):
                 errors["base"] = "invalid_auth"
             except WhiskerConnectionError:
@@ -137,9 +147,9 @@ class WhiskerConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 return self.async_update_reload_and_abort(
                     self._get_reauth_entry(),
-                    data_updates={
+                    data={
                         CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
+                        CONF_REFRESH_TOKEN: refresh_token,
                     },
                 )
 
@@ -163,8 +173,8 @@ class WhiskerOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage general settings."""
         if user_input is not None:
-            # Merge over existing options: internal keys (e.g. the probed
-            # station-id map) must survive a form save.
+            # Merge over existing options so keys this form doesn't show
+            # survive a save.
             return self.async_create_entry(
                 title="", data={**self.config_entry.options, **user_input}
             )

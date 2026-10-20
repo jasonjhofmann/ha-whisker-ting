@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from custom_components.whisker_ting.auth import (
     COGNITO_IDP_URL,
     AuthenticationError,
+    CognitoServiceError,
     CognitoSRP,
     WhiskerAuth,
     get_cognito_formatted_timestamp,
@@ -49,6 +51,9 @@ USER = {
         {"Name": "custom:api_key", "Value": "fake-api-key"},
     ]
 }
+SENSITIVE_RESPONSE_BODY = (
+    '{"__type":"UnexpectedException","message":"secret-token-sentinel"}'
+)
 
 
 def test_pad_hex_even_and_high_bit():
@@ -151,3 +156,150 @@ async def test_authenticate_bad_credentials(hass: HomeAssistant, aioclient_mock)
     auth = WhiskerAuth(async_get_clientsession(hass))
     with pytest.raises(AuthenticationError):
         await auth.authenticate("ada", "wrong")
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    ["UserNotFoundException", "NotAuthorizedException"],
+)
+async def test_auth_initiation_classifies_bad_credentials_without_exposing_body(
+    hass: HomeAssistant, aioclient_mock, caplog, error_type: str
+):
+    """Credential failures stay recognizable without leaking Cognito's body."""
+    response_body = f'{{"__type":"{error_type}","message":"secret-token-sentinel"}}'
+    aioclient_mock.post(COGNITO_IDP_URL, status=400, text=response_body)
+    caplog.set_level(logging.DEBUG, logger="custom_components.whisker_ting.auth")
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    with pytest.raises(AuthenticationError) as err:
+        await auth._initiate_auth({"USERNAME": "ada", "SRP_A": "1"})
+
+    assert str(err.value) == "Invalid username or password"
+    assert "HTTP 400" in caplog.text
+    assert response_body not in caplog.text
+    assert "secret-token-sentinel" not in caplog.text
+
+
+async def test_auth_challenge_classifies_bad_credentials_without_exposing_body(
+    hass: HomeAssistant, aioclient_mock, caplog
+):
+    """Challenge failures retain invalid-credential handling without body leaks."""
+    response_body = (
+        '{"__type":"NotAuthorizedException","message":"secret-token-sentinel"}'
+    )
+    aioclient_mock.post(COGNITO_IDP_URL, status=400, text=response_body)
+    caplog.set_level(logging.DEBUG, logger="custom_components.whisker_ting.auth")
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    with pytest.raises(AuthenticationError) as err:
+        await auth._respond_to_challenge({"USERNAME": "ada"})
+
+    assert str(err.value) == "Invalid username or password"
+    assert "HTTP 400" in caplog.text
+    assert response_body not in caplog.text
+    assert "secret-token-sentinel" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("method_name", "arguments", "expected_message"),
+    [
+        (
+            "refresh_tokens",
+            ("refresh-token",),
+            "Token refresh failed (HTTP 418)",
+        ),
+        (
+            "_initiate_auth",
+            ({"USERNAME": "ada", "SRP_A": "1"},),
+            "Auth initiation failed (HTTP 418)",
+        ),
+        (
+            "_respond_to_challenge",
+            ({"USERNAME": "ada"},),
+            "Challenge response failed (HTTP 418)",
+        ),
+        (
+            "get_user",
+            ("access-token",),
+            "Get user failed (HTTP 418)",
+        ),
+    ],
+)
+async def test_cognito_failures_never_expose_response_body(
+    hass: HomeAssistant,
+    aioclient_mock,
+    caplog,
+    method_name: str,
+    arguments: tuple[object, ...],
+    expected_message: str,
+):
+    """Unexpected Cognito responses expose status, never response contents."""
+    aioclient_mock.post(COGNITO_IDP_URL, status=418, text=SENSITIVE_RESPONSE_BODY)
+    caplog.set_level(logging.DEBUG, logger="custom_components.whisker_ting.auth")
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    method = getattr(auth, method_name)
+    with pytest.raises(CognitoServiceError) as err:
+        await method(*arguments)
+
+    assert str(err.value) == expected_message
+    assert "HTTP 418" in caplog.text
+    assert SENSITIVE_RESPONSE_BODY not in caplog.text
+    assert "secret-token-sentinel" not in caplog.text
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_cognito_outage_is_retryable_and_sanitized(
+    hass: HomeAssistant, aioclient_mock, caplog, status: int
+):
+    """Throttling and server outages must not trigger credential reauth."""
+    aioclient_mock.post(COGNITO_IDP_URL, status=status, text=SENSITIVE_RESPONSE_BODY)
+    caplog.set_level(logging.DEBUG, logger="custom_components.whisker_ting.auth")
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    with pytest.raises(CognitoServiceError, match=rf"HTTP {status}"):
+        await auth.refresh_tokens("refresh-token")
+
+    assert SENSITIVE_RESPONSE_BODY not in caplog.text
+    assert "secret-token-sentinel" not in caplog.text
+
+
+async def test_cognito_throttling_type_at_http_400_is_retryable(
+    hass: HomeAssistant, aioclient_mock
+):
+    """Cognito reports throttling at HTTP 400; it is not an auth rejection."""
+    aioclient_mock.post(
+        COGNITO_IDP_URL,
+        status=400,
+        text='{"__type":"TooManyRequestsException","message":"slow down"}',
+    )
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    with pytest.raises(CognitoServiceError, match="HTTP 400"):
+        await auth.refresh_tokens("refresh-token")
+
+
+async def test_rejected_refresh_token_is_auth_error_and_sanitized(
+    hass: HomeAssistant, aioclient_mock, caplog
+):
+    """An explicit Cognito token rejection still starts reauthentication."""
+    response_body = (
+        '{"__type":"NotAuthorizedException","message":"secret-token-sentinel"}'
+    )
+    aioclient_mock.post(COGNITO_IDP_URL, status=400, text=response_body)
+    caplog.set_level(logging.DEBUG, logger="custom_components.whisker_ting.auth")
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    with pytest.raises(AuthenticationError, match="rejected authentication"):
+        await auth.refresh_tokens("refresh-token")
+
+    assert response_body not in caplog.text
+    assert "secret-token-sentinel" not in caplog.text
+
+
+async def test_get_user_is_public(hass: HomeAssistant, aioclient_mock):
+    """The refresh-token flow can fetch Cognito attributes via a public API."""
+    aioclient_mock.post(COGNITO_IDP_URL, json=USER)
+
+    auth = WhiskerAuth(async_get_clientsession(hass))
+    assert await auth.get_user("access-token") == USER

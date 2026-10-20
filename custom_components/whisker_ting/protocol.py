@@ -46,7 +46,7 @@ Spec: https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubP
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import math
 from typing import TYPE_CHECKING, Any
@@ -93,6 +93,10 @@ class VoltageData:
     voltage_hi: float
     voltage_lo: float
     average_peaks_max: float
+    # Every key the payload carried, decoded or not. Logged once per
+    # connection so new fields (e.g. harmonic distortion) can be identified
+    # from a debug log without a packet capture.
+    fields: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
 
 def encode_varint(value: int) -> bytes:
@@ -260,7 +264,7 @@ def decode_voltage_update(message: list[Any]) -> VoltageData | None:
     if not VOLTAGE_MIN_ABS <= abs(voltage) <= VOLTAGE_MAX_ABS:
         return None
 
-    def _field(key: str, default: float) -> float:
+    def _number(key: str, default: float) -> float:
         try:
             return _finite_float(payload[key])
         except (KeyError, TypeError, ValueError):
@@ -269,9 +273,10 @@ def decode_voltage_update(message: list[Any]) -> VoltageData | None:
     return VoltageData(
         timestamp=_decode_timestamp(payload.get("DataTimeUtc")),
         voltage=voltage,
-        voltage_hi=_field("VoltageHi", voltage),
-        voltage_lo=_field("VoltageLo", voltage),
-        average_peaks_max=_field("AveragePeaksMax", 0.0),
+        voltage_hi=_number("VoltageHi", voltage),
+        voltage_lo=_number("VoltageLo", voltage),
+        average_peaks_max=_number("AveragePeaksMax", 0.0),
+        fields=tuple(sorted(str(key) for key in payload)),
     )
 
 
