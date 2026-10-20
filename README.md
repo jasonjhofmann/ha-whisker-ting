@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/jasonjhofmann/ha-whisker-ting.svg)](https://github.com/jasonjhofmann/ha-whisker-ting/releases)
 
-Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/) electrical-fire-safety sensor. This repository consolidates the fixes and features from every fork lineage of the original integration into one maintained codebase — the spec-compliant SignalR transport that ends the connection churn, the named-field voltage decode that ends the spurious spike misreads, alert/notification entities, multi-device support, and a full test suite. Ting plugs into an outlet and continuously monitors your home's electrical system for the arcing and power-quality problems that precede electrical fires. This integration connects to the Ting cloud service on your behalf and exposes real-time voltage readings plus electrical, utility, and power-quality hazard status as native Home Assistant entities.
+Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/) electrical-fire-safety sensor. This repository consolidates the fixes and features from every fork lineage of the original integration into one maintained codebase — a spec-compliant SignalR transport, the named-field voltage decode that ends the spurious spike misreads, alert/notification entities, multi-device support, and a full test suite. Ting plugs into an outlet and continuously monitors your home's electrical system for the arcing and power-quality problems that precede electrical fires. This integration connects to the Ting cloud service on your behalf and exposes real-time voltage readings plus electrical, utility, and power-quality hazard status as native Home Assistant entities.
 
 ## Features
 
@@ -13,7 +13,7 @@ Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/
   - Electrical Fire Hazard (EFH) detection
   - Utility Fire Hazard (UFH) detection
   - Learning-mode status
-- **Power quality hazard** and **frozen pipe risk** detection (site-level)
+- **Power quality hazard** (site-level) and **frozen pipe risk** (per device) detection
 - **Connectivity sensor** — reflects whether the real-time data stream is live
 - **Device diagnostics** — firmware version, WiFi/Bluetooth MAC addresses (also registered as device connections), serial number, subscription start date, and account group
 
@@ -21,12 +21,12 @@ Home Assistant integration for the [Whisker Labs Ting](https://www.tingfire.com/
 
 ### HACS (recommended)
 
-Whisker Ting is not (yet) in the default HACS store, so add it as a custom repository:
+Install this repository as a HACS custom repository. The HACS default list has a different integration with the same name and the same `whisker_ting` domain ([fourmajor/ha-whisker-ting](https://github.com/fourmajor/ha-whisker-ting)). Searching HACS for "Whisker Ting" finds that one, not this one, and the two can't be installed side by side. If you have it installed, remove it in HACS first (find it in the list, open its three-dot menu, and select **Remove**).
 
 1. Open **HACS** in Home Assistant.
 2. Click the three-dot menu in the top right corner and select **Custom repositories**.
 3. Add `https://github.com/jasonjhofmann/ha-whisker-ting` as the repository URL, choose **Integration** as the category, and click **Add**.
-4. Find **Whisker Ting** in HACS and click **Download**.
+4. Find **Whisker Ting** by jasonjhofmann (not fourmajor) in HACS and click **Download**.
 5. Restart Home Assistant.
 
 ### Manual
@@ -62,7 +62,7 @@ After setup, open **Settings** → **Devices & Services** → **Whisker Ting** a
 
 1. Go to **Settings** → **Devices & Services**.
 2. Find the **Whisker Ting** integration card, open its three-dot menu, and select **Delete**.
-3. If it was installed through HACS, open **HACS** → **Integrations**, find **Whisker Ting**, open its three-dot menu, and select **Remove** to remove the repository and files.
+3. If it was installed through HACS, open **HACS**, find **Whisker Ting** in the list, open its three-dot menu, and select **Remove** to remove the repository and files.
 
 ## Entities
 
@@ -110,7 +110,7 @@ Each Ting device is added to Home Assistant as its own device, named after its T
 | HVAC Verified | On when Ting has verified HVAC equipment on the circuit | Diagnostic | No |
 | Is Owner | On when this account is the device owner (vs. a shared/guest user) | Diagnostic | No |
 
-> **Note:** the Utility Fire Hazard binary sensor's entity ID keeps the legacy `unverified_fire_hazard` key for backward compatibility with existing installs — only its display name changed.
+> **Note:** the Utility Fire Hazard entities were called "Unverified Fire Hazard" before a rename, and their unique IDs keep the legacy `unverified_fire_hazard` key so existing installs carry over. Installs that created them under the old name keep entity IDs such as `binary_sensor.<device>_unverified_fire_hazard`. New installs get `binary_sensor.<device>_utility_fire_hazard`, `sensor.<device>_utility_fire_hazard_status`, and `sensor.<device>_utility_fire_hazard_message`.
 
 ### Events
 
@@ -232,8 +232,8 @@ one of them wrong:
 3. **Release the subscription before subscribing.** The official app pairs
    the two calls — `connection.onreconnected` invokes
    `UnInitializeStreaming` and then re-subscribes
-   (`chunk-GBDILMAT.js:6208-6226`) — and no third-party client has ever
-   called the teardown. Something server-side can latch for a station such
+   (`chunk-GBDILMAT.js:6208-6226`) — and no other third-party client calls
+   the teardown. Something server-side can latch for a station such
    that every subscribe is acknowledged and served nothing; that was
    observed once, for about thirty hours, and cleared around the time a
    release was first sent. A controlled A/B/A on a healthy station shows
@@ -242,7 +242,7 @@ one of them wrong:
    than a demonstrated cure.
 4. **`StationId` is the sensor serial.** Probing alternative identifiers
    (site id, SoC serial, group id) cannot work, because the hub returns
-   the same void acknowledgement for *any* value supplied — "no data
+   the same error-free acknowledgement for *any* value supplied — "no data
    arrived" never distinguishes a wrong station from a blocked stream.
 
 The stream itself runs at about 4 Hz. This integration keeps every sample
@@ -251,9 +251,9 @@ publish interval** option) so the recorder isn't flooded.
 
 ## Troubleshooting
 
-### Voltage shows "Unknown" briefly on startup
+### Voltage shows "Unavailable" briefly on startup
 
-This is normal — the integration waits for the WebSocket connection to receive its first data packet before displaying values.
+This is normal. The real-time voltage sensors stay unavailable until the first sample arrives from the WebSocket stream.
 
 ### Voltage sensors show "Unavailable"
 
@@ -281,7 +281,7 @@ trigger is not understood and a second data point would help a lot.
 
 ### Upgrading from a pre-3.0 fork: log spam / reconnect loops
 
-Versions before 3.0.0 (including the other forks this repository consolidates, except those noted in the changelog) sent malformed SignalR frames that made the server drop the connection every few seconds — visible as endless `WebSocket disconnected ... triggering reconnect` / `data stale` log lines, even while voltage values appeared to update. 3.0.0's spec-compliant framing fixes the root cause; after upgrading, a single `Connected to SignalR hub` line and silence is the healthy state.
+Before 3.0.0, this integration (like the original and the billda lineage) sent unframed SignalR messages. In production that coincided with endless `WebSocket disconnected ... triggering reconnect` / `data stale` log lines, even while voltage values appeared to update. A 2026-08-05 retest found unframed builds streaming with no disconnects, so the spec-compliant framing is kept because it is correct, not as a proven fix (see the 3.3.2 changelog entry). The fourmajor, adamjthompson, and amitcpatel forks already framed their messages. Versions 3.0.0 to 3.0.3 also closed the connection on the server's acknowledgement, which 3.1.0 fixed. On a current version, one `Connected to SignalR hub` line per device and then silence is the healthy state.
 
 ### Authentication errors
 

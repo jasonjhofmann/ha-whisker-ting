@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.3.3
+
+Documentation only; no behaviour change.
+
+### Fixed
+
+- **Install: HACS search finds a different integration.**
+  fourmajor/ha-whisker-ting is in the HACS default list under the same
+  `whisker_ting` domain, so the README no longer says Whisker Ting isn't in
+  the default store. It says to install this repository as a custom
+  repository, pick the jasonjhofmann entry, and remove fourmajor's first if
+  it is installed, since the two can't coexist.
+- **README claims brought in line with 3.3.2's findings.** The intro and the
+  "Upgrading from a pre-3.0 fork" section no longer call spec framing the
+  root-cause fix for connection churn (the 2026-08-05 retest could not
+  reproduce it) or say the other forks all sent malformed frames (fourmajor,
+  adamjthompson and amitcpatel framed theirs). The `StationId` note says
+  "error-free" rather than "void" acknowledgement, and the same leftover is
+  corrected in the `websocket.py` docstring.
+- **Smaller corrections.** Startup shows voltage as Unavailable, not
+  Unknown. The Utility Fire Hazard note now says only the unique IDs keep the
+  legacy key; new installs get `utility_fire_hazard` entity IDs. Frozen pipe
+  risk is per device, not site-level. No other client "calls" the
+  `UnInitializeStreaming` teardown (this one has since 3.3.0). HACS 2.x has no
+  Integrations section, so the removal steps say to find it in the list.
+
+HACS shows the README from the latest release, which is why this ships as
+one.
+
 ## 3.3.2
 
 Corrections from deploying the other forks against the live hub and
